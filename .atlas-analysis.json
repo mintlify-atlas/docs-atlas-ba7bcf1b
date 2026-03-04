@@ -1,0 +1,122 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Claude Agent SDK for Python",
+  "projectDescription": "Python SDK for building AI agents with Claude Code, featuring bidirectional conversations, custom tools, and MCP server support",
+  "theme": "palm",
+  "primaryColor": "#D97757",
+  "lightColor": "#E89B7F",
+  "darkColor": "#B85C3F",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core-concepts/query-vs-client",
+              "core-concepts/messages",
+              "core-concepts/options",
+              "core-concepts/error-handling"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/basic-usage",
+              "guides/interactive-conversations",
+              "guides/custom-tools",
+              "guides/hooks",
+              "guides/mcp-servers",
+              "guides/permissions",
+              "guides/sessions",
+              "guides/agents"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/simple-queries",
+              "examples/streaming-mode",
+              "examples/mcp-calculator",
+              "examples/tool-permissions",
+              "examples/hooks-example"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Functions",
+            "pages": [
+              "api/query",
+              "api/claude-sdk-client"
+            ]
+          },
+          {
+            "group": "MCP Tools",
+            "pages": [
+              "api/tool",
+              "api/create-sdk-mcp-server"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api/types/claude-agent-options",
+              "api/types/messages",
+              "api/types/content-blocks",
+              "api/types/hooks",
+              "api/types/mcp-types",
+              "api/types/errors"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Simple query() function for one-shot interactions",
+    "ClaudeSDKClient for bidirectional, interactive conversations",
+    "In-process MCP servers with custom Python tools",
+    "Hooks system for customizing agent behavior",
+    "Session management and file checkpointing",
+    "Permission controls and tool management",
+    "Built-in error handling and type safety",
+    "Support for streaming responses"
+  ],
+  "publicApiSurface": [
+    "query()",
+    "ClaudeSDKClient",
+    "tool()",
+    "create_sdk_mcp_server()",
+    "ClaudeAgentOptions",
+    "AssistantMessage",
+    "UserMessage",
+    "SystemMessage",
+    "ResultMessage",
+    "TextBlock",
+    "ToolUseBlock",
+    "ToolResultBlock",
+    "HookCallback",
+    "HookMatcher",
+    "AgentDefinition",
+    "ClaudeSDKError",
+    "CLIConnectionError",
+    "CLINotFoundError",
+    "ProcessError",
+    "CLIJSONDecodeError",
+    "list_sessions()",
+    "get_session_messages()"
+  ]
+}
