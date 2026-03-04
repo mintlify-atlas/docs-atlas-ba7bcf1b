@@ -1,0 +1,450 @@
+---
+title: 'ClaudeSDKClient'
+description: 'Client for bidirectional, interactive conversations with Claude Code'
+---
+
+## Overview
+
+The `ClaudeSDKClient` provides full control over the conversation flow with support for streaming, interrupts, and dynamic message sending. For simple one-shot queries, consider using the `query()` function instead.
+
+### Key Features
+
+- **Bidirectional**: Send and receive messages at any time
+- **Stateful**: Maintains conversation context across messages
+- **Interactive**: Send follow-ups based on responses
+- **Control flow**: Support for interrupts and session management
+
+### When to Use ClaudeSDKClient
+
+- Building chat interfaces or conversational UIs
+- Interactive debugging or exploration sessions
+- Multi-turn conversations with context
+- When you need to react to Claude's responses
+- Real-time applications with user input
+- When you need interrupt capabilities
+
+### When to Use query() Instead
+
+- Simple one-off questions
+- Batch processing of prompts
+- Fire-and-forget automation scripts
+- When all inputs are known upfront
+- Stateless operations
+
+<Note>
+**Async Context Limitation**: As of v0.0.20, you cannot use a ClaudeSDKClient instance across different async runtime contexts (e.g., different trio nurseries or asyncio task groups). The client internally maintains a persistent anyio task group for reading messages that remains active from `connect()` until `disconnect()`. Complete all operations with the client within the same async context where it was connected.
+</Note>
+
+## Constructor
+
+```python
+def __init__(
+    self,
+    options: ClaudeAgentOptions | None = None,
+    transport: Transport | None = None,
+)
+```
+
+### Parameters
+
+<ParamField path="options" type="ClaudeAgentOptions | None" default="None">
+  Optional configuration (defaults to `ClaudeAgentOptions()` if None).
+  
+  Key options:
+  - **permission_mode**: Control tool execution
+  - **cwd**: Working directory
+  - **system_prompt**: Custom system prompt
+  - **mcp_servers**: MCP server configurations
+  - **can_use_tool**: Callback for tool permission control
+  - **hooks**: Event hooks for custom behavior
+  - **enable_file_checkpointing**: Enable file state tracking
+</ParamField>
+
+<ParamField path="transport" type="Transport | None" default="None">
+  Optional custom transport implementation. If None, uses default subprocess transport.
+</ParamField>
+
+## Methods
+
+### connect()
+
+Connect to Claude with a prompt or message stream.
+
+```python
+async def connect(
+    self,
+    prompt: str | AsyncIterable[dict[str, Any]] | None = None
+) -> None
+```
+
+<ParamField path="prompt" type="str | AsyncIterable[dict[str, Any]] | None" default="None">
+  Initial prompt or message stream. If None, connects without sending any messages (for interactive use).
+</ParamField>
+
+**Example:**
+
+```python
+client = ClaudeSDKClient()
+await client.connect()  # Connect without initial prompt
+```
+
+### query()
+
+Send a new request in streaming mode.
+
+```python
+async def query(
+    self,
+    prompt: str | AsyncIterable[dict[str, Any]],
+    session_id: str = "default"
+) -> None
+```
+
+<ParamField path="prompt" type="str | AsyncIterable[dict[str, Any]]" required>
+  Either a string message or an async iterable of message dictionaries.
+</ParamField>
+
+<ParamField path="session_id" type="str" default="default">
+  Session identifier for the conversation.
+</ParamField>
+
+**Example:**
+
+```python
+await client.query("What is the capital of France?")
+```
+
+### receive_messages()
+
+Receive all messages from Claude as they arrive.
+
+```python
+async def receive_messages(self) -> AsyncIterator[Message]
+```
+
+**Returns:** AsyncIterator yielding messages indefinitely until disconnect.
+
+**Example:**
+
+```python
+async for message in client.receive_messages():
+    if isinstance(message, AssistantMessage):
+        print(message.content)
+```
+
+### receive_response()
+
+Receive messages until and including a ResultMessage.
+
+```python
+async def receive_response(self) -> AsyncIterator[Message]
+```
+
+**Returns:** AsyncIterator that automatically terminates after yielding a `ResultMessage`.
+
+**Stopping Behavior:**
+- Yields each message as it's received
+- Terminates immediately after yielding a ResultMessage
+- The ResultMessage IS included in the yielded messages
+- If no ResultMessage is received, the iterator continues indefinitely
+
+**Example:**
+
+```python
+await client.query("Explain Python decorators")
+
+async for msg in client.receive_response():
+    if isinstance(msg, AssistantMessage):
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                print(f"Claude: {block.text}")
+    elif isinstance(msg, ResultMessage):
+        print(f"Cost: ${msg.total_cost_usd:.4f}")
+        # Iterator terminates after this
+```
+
+### interrupt()
+
+Send interrupt signal to stop the current operation.
+
+```python
+async def interrupt(self) -> None
+```
+
+**Example:**
+
+```python
+await client.interrupt()
+```
+
+### set_permission_mode()
+
+Change permission mode during conversation.
+
+```python
+async def set_permission_mode(self, mode: str) -> None
+```
+
+<ParamField path="mode" type="str" required>
+  The permission mode to set:
+  - `'default'`: CLI prompts for dangerous tools
+  - `'acceptEdits'`: Auto-accept file edits
+  - `'bypassPermissions'`: Allow all tools (use with caution)
+</ParamField>
+
+**Example:**
+
+```python
+# Start with default permissions
+await client.query("Help me analyze this codebase")
+
+# Switch to auto-accept edits
+await client.set_permission_mode('acceptEdits')
+await client.query("Now implement the fix we discussed")
+```
+
+### set_model()
+
+Change the AI model during conversation.
+
+```python
+async def set_model(self, model: str | None = None) -> None
+```
+
+<ParamField path="model" type="str | None" default="None">
+  The model to use, or None for default. Examples:
+  - `'claude-sonnet-4-5'`
+  - `'claude-opus-4-1-20250805'`
+  - `'claude-opus-4-20250514'`
+</ParamField>
+
+**Example:**
+
+```python
+await client.set_model('claude-sonnet-4-5')
+```
+
+### rewind_files()
+
+Rewind tracked files to their state at a specific user message.
+
+```python
+async def rewind_files(self, user_message_id: str) -> None
+```
+
+<ParamField path="user_message_id" type="str" required>
+  UUID of the user message to rewind to. This should be the `uuid` field from a `UserMessage` received during the conversation.
+</ParamField>
+
+**Requirements:**
+- `enable_file_checkpointing=True` to track file changes
+- `extra_args={"replay-user-messages": None}` to receive UserMessage objects with `uuid`
+
+**Example:**
+
+```python
+options = ClaudeAgentOptions(
+    enable_file_checkpointing=True,
+    extra_args={"replay-user-messages": None},
+)
+async with ClaudeSDKClient(options) as client:
+    await client.query("Make some changes to my files")
+    async for msg in client.receive_response():
+        if isinstance(msg, UserMessage) and msg.uuid:
+            checkpoint_id = msg.uuid  # Save for later
+
+    # Rewind to that point
+    await client.rewind_files(checkpoint_id)
+```
+
+### get_mcp_status()
+
+Get current MCP server connection status.
+
+```python
+async def get_mcp_status(self) -> McpStatusResponse
+```
+
+**Returns:** `McpStatusResponse` dictionary with:
+- `mcpServers`: List of server status entries
+
+Each server status includes:
+- `name`: Server name (str)
+- `status`: Connection status (`'connected'`, `'pending'`, `'failed'`, `'needs-auth'`, `'disabled'`)
+- `serverInfo`: MCP server name/version (when connected)
+- `error`: Error message (when status is `'failed'`)
+- `config`: Server configuration
+- `scope`: Configuration scope
+- `tools`: List of tools provided (when connected)
+
+**Example:**
+
+```python
+status = await client.get_mcp_status()
+for server in status["mcpServers"]:
+    print(f"{server['name']}: {server['status']}")
+    if server["status"] == "failed":
+        print(f"  Error: {server.get('error')}")
+```
+
+### reconnect_mcp_server()
+
+Reconnect a disconnected or failed MCP server.
+
+```python
+async def reconnect_mcp_server(self, server_name: str) -> None
+```
+
+<ParamField path="server_name" type="str" required>
+  The name of the MCP server to reconnect.
+</ParamField>
+
+**Example:**
+
+```python
+status = await client.get_mcp_status()
+for server in status.get("mcpServers", []):
+    if server["status"] == "failed":
+        await client.reconnect_mcp_server(server["name"])
+```
+
+### toggle_mcp_server()
+
+Enable or disable an MCP server.
+
+```python
+async def toggle_mcp_server(self, server_name: str, enabled: bool) -> None
+```
+
+<ParamField path="server_name" type="str" required>
+  The name of the MCP server to toggle.
+</ParamField>
+
+<ParamField path="enabled" type="bool" required>
+  True to enable the server, False to disable it.
+</ParamField>
+
+**Example:**
+
+```python
+# Disable a server
+await client.toggle_mcp_server("my-server", enabled=False)
+await client.query("Do something without my-server tools")
+
+# Re-enable it
+await client.toggle_mcp_server("my-server", enabled=True)
+```
+
+### stop_task()
+
+Stop a running task.
+
+```python
+async def stop_task(self, task_id: str) -> None
+```
+
+<ParamField path="task_id" type="str" required>
+  The task ID from `task_notification` events.
+</ParamField>
+
+After this resolves, a `task_notification` system message with status `'stopped'` will be emitted.
+
+**Example:**
+
+```python
+await client.query("Start a long-running task")
+# Listen for task_notification to get task_id, then:
+await client.stop_task("task-abc123")
+```
+
+### get_server_info()
+
+Get server initialization info including available commands and output styles.
+
+```python
+async def get_server_info(self) -> dict[str, Any] | None
+```
+
+**Returns:** Dictionary with server info, or None if not in streaming mode.
+
+Includes:
+- Available commands (slash commands, system commands, etc.)
+- Current and available output styles
+- Server capabilities
+
+**Example:**
+
+```python
+info = await client.get_server_info()
+if info:
+    print(f"Commands available: {len(info.get('commands', []))}")
+    print(f"Output style: {info.get('output_style', 'default')}")
+```
+
+### disconnect()
+
+Disconnect from Claude.
+
+```python
+async def disconnect(self) -> None
+```
+
+**Example:**
+
+```python
+await client.disconnect()
+```
+
+## Context Manager Support
+
+The client supports async context manager protocol for automatic connection/disconnection:
+
+```python
+async with ClaudeSDKClient() as client:
+    await client.query("Hello!")
+    async for msg in client.receive_response():
+        print(msg)
+# Automatically disconnects when exiting context
+```
+
+## Complete Example
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from claude_agent_sdk.types import AssistantMessage, TextBlock, ResultMessage
+
+async def main():
+    options = ClaudeAgentOptions(
+        cwd="/home/user/project",
+        permission_mode="acceptEdits",
+        system_prompt="You are a helpful coding assistant"
+    )
+    
+    async with ClaudeSDKClient(options) as client:
+        # First query
+        await client.query("Analyze the codebase structure")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+            elif isinstance(msg, ResultMessage):
+                print(f"Cost: ${msg.total_cost_usd:.4f}")
+        
+        # Follow-up query
+        await client.query("Now create a test file")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+```
+
+## Related
+
+- [query()](/api/query) - For simple one-shot queries
+- [ClaudeAgentOptions](/api/types/claude-agent-options) - Configuration options
+- [Message Types](/api/types/messages) - Available message types
+- [Transport](/api/claude-sdk-client) - Custom transport implementations

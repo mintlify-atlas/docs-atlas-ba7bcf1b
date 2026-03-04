@@ -1,0 +1,612 @@
+---
+title: 'Hooks'
+description: 'Implement hooks to customize agent behavior and control tool execution'
+---
+
+## Overview
+
+Hooks allow you to intercept and modify Claude's behavior at specific points during execution. You can use hooks to add custom logic, validate tool usage, inject context, and control the conversation flow.
+
+## Available Hook Events
+
+The SDK provides multiple hook events that fire at different points:
+
+<CardGroup cols={2}>
+
+<Card title="PreToolUse" icon="circle-play">
+  Fires before a tool is executed - useful for validation and permission checks
+</Card>
+
+<Card title="PostToolUse" icon="circle-check">
+  Fires after a tool completes successfully - useful for logging and reviewing output
+</Card>
+
+<Card title="PostToolUseFailure" icon="circle-xmark">
+  Fires when a tool fails - useful for error handling and recovery
+</Card>
+
+<Card title="UserPromptSubmit" icon="paper-plane">
+  Fires when a user prompt is submitted - useful for adding context
+</Card>
+
+<Card title="Stop" icon="stop">
+  Fires when execution stops - useful for cleanup
+</Card>
+
+<Card title="PreCompact" icon="compress">
+  Fires before message history is compacted
+</Card>
+
+<Card title="SubagentStart" icon="play">
+  Fires when a subagent starts
+</Card>
+
+<Card title="SubagentStop" icon="stop">
+  Fires when a subagent stops
+</Card>
+
+</CardGroup>
+
+## Hook Function Structure
+
+Hooks are async functions with a specific signature:
+
+```python
+from claude_agent_sdk.types import HookInput, HookContext, HookJSONOutput
+
+async def my_hook(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    # Your logic here
+    return {}
+```
+
+### Parameters
+
+- **input_data**: Dictionary with hook-specific data (tool name, input, response, etc.)
+- **tool_use_id**: Unique ID for the tool execution (if applicable)
+- **context**: Additional context about the hook execution
+
+### Return Value
+
+Return a `HookJSONOutput` dictionary with optional fields:
+
+- **reason**: Explanation of what the hook did
+- **systemMessage**: Message shown to the user
+- **continue_**: Whether to continue execution (default: true)
+- **stopReason**: Why execution was stopped (if continue_ is false)
+- **hookSpecificOutput**: Event-specific data
+
+## Registering Hooks
+
+Register hooks using `ClaudeAgentOptions`:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk.types import HookMatcher
+
+# Define hook function
+async def my_pretool_hook(input_data, tool_use_id, context):
+    return {}
+
+# Register the hook
+options = ClaudeAgentOptions(
+    hooks={
+        "PreToolUse": [
+            HookMatcher(
+                matcher="Bash",  # Only for Bash tool, or None for all tools
+                hooks=[my_pretool_hook],
+                timeout=30000  # Optional timeout in ms
+            )
+        ]
+    }
+)
+
+async with ClaudeSDKClient(options=options) as client:
+    # Your code here
+    pass
+```
+
+## PreToolUse Hook
+
+Block or allow tool execution before it runs:
+
+```python
+import logging
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk.types import HookInput, HookContext, HookJSONOutput, HookMatcher
+
+logger = logging.getLogger(__name__)
+
+async def check_bash_command(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Prevent certain bash commands from being executed."""
+    tool_name = input_data["tool_name"]
+    tool_input = input_data["tool_input"]
+    
+    if tool_name != "Bash":
+        return {}  # Not a Bash command, allow it
+    
+    command = tool_input.get("command", "")
+    block_patterns = ["rm -rf", "sudo", "shutdown"]
+    
+    for pattern in block_patterns:
+        if pattern in command:
+            logger.warning(f"Blocked dangerous command: {command}")
+            return {
+                "reason": f"Command blocked for safety",
+                "systemMessage": f"🚫 Command '{command}' blocked by security policy",
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": f"Command contains dangerous pattern: {pattern}"
+                }
+            }
+    
+    # Allow the command
+    return {}
+
+# Register the hook
+options = ClaudeAgentOptions(
+    allowed_tools=["Bash"],
+    hooks={
+        "PreToolUse": [
+            HookMatcher(matcher="Bash", hooks=[check_bash_command])
+        ]
+    }
+)
+
+async def main():
+    async with ClaudeSDKClient(options=options) as client:
+        # This will be blocked
+        await client.query("Run: rm -rf /important_files")
+        async for msg in client.receive_response():
+            print(msg)
+        
+        # This will be allowed
+        await client.query("Run: echo 'Hello World'")
+        async for msg in client.receive_response():
+            print(msg)
+```
+
+### Permission Decisions
+
+Use `permissionDecision` to explicitly allow or deny tool execution:
+
+```python
+async def strict_approval_hook(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    tool_name = input_data.get("tool_name")
+    tool_input = input_data.get("tool_input", {})
+    
+    # Block Write operations to important files
+    if tool_name == "Write":
+        file_path = tool_input.get("file_path", "")
+        if "important" in file_path.lower():
+            return {
+                "reason": "Writes to files containing 'important' are not allowed",
+                "systemMessage": "🚫 Write operation blocked by security policy",
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "Security policy blocks writes to important files"
+                }
+            }
+    
+    # Allow everything else
+    return {
+        "reason": "Tool use approved after security review",
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "Tool passed security checks"
+        }
+    }
+```
+
+## PostToolUse Hook
+
+Review and augment tool output after execution:
+
+```python
+async def review_tool_output(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Review tool output and provide additional context."""
+    tool_response = input_data.get("tool_response", "")
+    
+    # If the tool produced an error, add helpful context
+    if "error" in str(tool_response).lower():
+        return {
+            "reason": "Tool execution failed - providing guidance",
+            "systemMessage": "⚠️ The command produced an error",
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "The command encountered an error. You may want to try a different approach."
+            }
+        }
+    
+    return {}
+
+# Register the hook
+options = ClaudeAgentOptions(
+    allowed_tools=["Bash"],
+    hooks={
+        "PostToolUse": [
+            HookMatcher(matcher="Bash", hooks=[review_tool_output])
+        ]
+    }
+)
+```
+
+## UserPromptSubmit Hook
+
+Add custom context when user prompts are submitted:
+
+```python
+async def add_custom_instructions(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Add custom instructions when a session starts."""
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": "User preferences: Concise responses, use examples, avoid jargon"
+        }
+    }
+
+options = ClaudeAgentOptions(
+    hooks={
+        "UserPromptSubmit": [
+            HookMatcher(matcher=None, hooks=[add_custom_instructions])  # None = all prompts
+        ]
+    }
+)
+```
+
+## Stopping Execution
+
+Use `continue_` field to stop execution on certain conditions:
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+async def stop_on_critical_error(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Stop execution if a critical error is detected."""
+    tool_response = input_data.get("tool_response", "")
+    
+    # Stop execution if we see a critical error
+    if "critical" in str(tool_response).lower():
+        logger.error("Critical error detected - stopping execution")
+        return {
+            "continue_": False,
+            "stopReason": "Critical error detected in tool output - execution halted for safety",
+            "systemMessage": "🛑 Execution stopped due to critical error"
+        }
+    
+    # Continue normally
+    return {"continue_": True}
+
+options = ClaudeAgentOptions(
+    allowed_tools=["Bash"],
+    hooks={
+        "PostToolUse": [
+            HookMatcher(matcher="Bash", hooks=[stop_on_critical_error])
+        ]
+    }
+)
+```
+
+## Multiple Hooks
+
+You can register multiple hooks for the same event:
+
+```python
+async def log_tool_use(input_data, tool_use_id, context):
+    """Log all tool usage."""
+    tool_name = input_data.get("tool_name")
+    print(f"Tool used: {tool_name}")
+    return {}
+
+async def validate_tool_use(input_data, tool_use_id, context):
+    """Validate tool parameters."""
+    tool_input = input_data.get("tool_input", {})
+    # Validation logic
+    return {}
+
+async def security_check(input_data, tool_use_id, context):
+    """Security validation."""
+    # Security logic
+    return {}
+
+options = ClaudeAgentOptions(
+    hooks={
+        "PreToolUse": [
+            HookMatcher(
+                matcher=None,  # Apply to all tools
+                hooks=[log_tool_use, validate_tool_use, security_check]
+            )
+        ]
+    }
+)
+```
+
+<Info>
+  Hooks in the list are executed in order. If any hook returns `continue_: False`, subsequent hooks won't execute.
+</Info>
+
+## Tool-Specific Hooks
+
+Register different hooks for different tools:
+
+```python
+async def check_bash(input_data, tool_use_id, context):
+    # Bash-specific validation
+    return {}
+
+async def check_write(input_data, tool_use_id, context):
+    # Write-specific validation
+    return {}
+
+async def check_all(input_data, tool_use_id, context):
+    # Applies to all tools
+    return {}
+
+options = ClaudeAgentOptions(
+    hooks={
+        "PreToolUse": [
+            HookMatcher(matcher="Bash", hooks=[check_bash]),
+            HookMatcher(matcher="Write", hooks=[check_write]),
+            HookMatcher(matcher=None, hooks=[check_all])  # All tools
+        ]
+    }
+)
+```
+
+## Hook Timeouts
+
+Set timeouts for long-running hooks:
+
+```python
+async def slow_validation(input_data, tool_use_id, context):
+    # Potentially slow validation logic
+    import asyncio
+    await asyncio.sleep(5)  # Simulating slow operation
+    return {}
+
+options = ClaudeAgentOptions(
+    hooks={
+        "PreToolUse": [
+            HookMatcher(
+                matcher="Bash",
+                hooks=[slow_validation],
+                timeout=10000  # 10 second timeout (in milliseconds)
+            )
+        ]
+    }
+)
+```
+
+## Complete Working Example
+
+Here's a complete example combining multiple hook patterns:
+
+```python
+#!/usr/bin/env python3
+import asyncio
+import logging
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk.types import (
+    HookInput,
+    HookContext,
+    HookJSONOutput,
+    HookMatcher,
+    AssistantMessage,
+    TextBlock
+)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Hook 1: Security validation
+async def security_check(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Block dangerous commands."""
+    if input_data.get("tool_name") == "Bash":
+        command = input_data.get("tool_input", {}).get("command", "")
+        if "rm -rf" in command or "sudo" in command:
+            logger.warning(f"Blocked: {command}")
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "Dangerous command blocked"
+                }
+            }
+    return {}
+
+# Hook 2: Usage logging
+async def log_usage(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Log all tool usage."""
+    tool_name = input_data.get("tool_name")
+    logger.info(f"Tool executed: {tool_name}")
+    return {}
+
+# Hook 3: Error handling
+async def handle_errors(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Provide context on errors."""
+    tool_response = input_data.get("tool_response", "")
+    if "error" in str(tool_response).lower():
+        return {
+            "systemMessage": "⚠️ Command failed",
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": "Try checking the command syntax"
+            }
+        }
+    return {}
+
+# Hook 4: Add user context
+async def add_context(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    """Add user preferences."""
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": "User prefers detailed explanations with examples"
+        }
+    }
+
+async def main():
+    # Configure all hooks
+    options = ClaudeAgentOptions(
+        allowed_tools=["Bash", "Write"],
+        hooks={
+            "PreToolUse": [
+                HookMatcher(matcher="Bash", hooks=[security_check])
+            ],
+            "PostToolUse": [
+                HookMatcher(matcher=None, hooks=[log_usage, handle_errors])
+            ],
+            "UserPromptSubmit": [
+                HookMatcher(matcher=None, hooks=[add_context])
+            ]
+        }
+    )
+    
+    async with ClaudeSDKClient(options=options) as client:
+        # Test 1: Safe command (will succeed)
+        print("\n=== Test 1: Safe Command ===")
+        await client.query("Run: echo 'Hello from hooks!'")
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+        
+        # Test 2: Dangerous command (will be blocked)
+        print("\n=== Test 2: Dangerous Command ===")
+        await client.query("Run: sudo rm -rf /important")
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+        
+        # Test 3: Command that will error
+        print("\n=== Test 3: Command with Error ===")
+        await client.query("Run: ls /nonexistent_directory")
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Best Practices
+
+<AccordionGroup>
+
+<Accordion title="Keep Hooks Fast">
+  Hooks block tool execution. Keep them fast and set timeouts for potentially slow operations.
+</Accordion>
+
+<Accordion title="Return Empty Dicts">
+  If a hook doesn't need to modify behavior, return an empty dict `{}` rather than None.
+</Accordion>
+
+<Accordion title="Use Appropriate Events">
+  - Use `PreToolUse` for validation and permission checks
+  - Use `PostToolUse` for logging and output augmentation
+  - Use `UserPromptSubmit` for context injection
+</Accordion>
+
+<Accordion title="Provide Clear Messages">
+  When blocking or modifying behavior, always include clear `reason` and `systemMessage` fields.
+</Accordion>
+
+<Accordion title="Handle Errors Gracefully">
+  Wrap hook logic in try-except to prevent hook failures from breaking execution:
+  
+  ```python
+  async def safe_hook(input_data, tool_use_id, context):
+      try:
+          # Hook logic
+          return {...}
+      except Exception as e:
+          logger.error(f"Hook failed: {e}")
+          return {}  # Allow execution to continue
+  ```
+</Accordion>
+
+<Accordion title="Use Logging">
+  Add logging to hooks for debugging and monitoring:
+  
+  ```python
+  import logging
+  logger = logging.getLogger(__name__)
+  
+  async def my_hook(input_data, tool_use_id, context):
+      logger.info(f"Hook triggered: {input_data.get('tool_name')}")
+      return {}
+  ```
+</Accordion>
+
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Permissions" icon="shield" href="/guides/permissions">
+  Learn about tool permission management
+</Card>
+
+<Card title="Custom Tools" icon="wrench" href="/guides/custom-tools">
+  Create custom tools with hooks
+</Card>
+
+<Card title="Hook Types" icon="book" href="/api/types/hooks">
+  Complete hook type reference
+</Card>
+
+<Card title="Examples" icon="code" href="/examples/hooks-example">
+  More hook examples
+</Card>
+
+</CardGroup>

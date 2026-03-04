@@ -1,0 +1,295 @@
+---
+title: 'Basic Usage'
+description: 'Learn how to use the query() function for simple, one-shot interactions with Claude'
+---
+
+## Overview
+
+The `query()` function is the simplest way to interact with Claude Code. It's perfect for one-shot questions, batch processing, and scenarios where you know all your inputs upfront.
+
+<Info>
+  For interactive conversations with back-and-forth messaging, use [ClaudeSDKClient](/guides/interactive-conversations) instead.
+</Info>
+
+## When to Use query()
+
+Use `query()` when you need:
+
+- **Simple one-off questions** - "What is 2+2?"
+- **Batch processing** - Processing multiple independent prompts
+- **Code generation** - Creating files or analyzing code
+- **Automation scripts** - CI/CD pipelines, automated tasks
+- **Fire-and-forget** - When all inputs are known upfront
+
+## Basic Example
+
+Here's the simplest way to use `query()`:
+
+```python
+import asyncio
+from claude_agent_sdk import query
+
+async def main():
+    # Simple question
+    async for message in query(prompt="What is the capital of France?"):
+        print(message)
+
+asyncio.run(main())
+```
+
+## Working with Message Types
+
+The `query()` function yields different message types. Here's how to handle them:
+
+```python
+from claude_agent_sdk import (
+    query,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock
+)
+
+async def main():
+    async for message in query(prompt="Explain Python async/await in simple terms"):
+        if isinstance(message, AssistantMessage):
+            # Extract text from Claude's response
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+        
+        elif isinstance(message, ResultMessage):
+            # Final message with metadata
+            print(f"\nCost: ${message.total_cost_usd:.4f}")
+            print(f"Status: {message.stop_reason}")
+```
+
+## Using Options
+
+Customize Claude's behavior with `ClaudeAgentOptions`:
+
+<CodeGroup>
+
+```python System Prompt
+from claude_agent_sdk import query, ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    system_prompt="You are an expert Python developer.",
+    model="claude-sonnet-4-5"
+)
+
+async for message in query(
+    prompt="Review this code for best practices",
+    options=options
+):
+    print(message)
+```
+
+```python Working Directory
+from claude_agent_sdk import query, ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    cwd="/home/user/project",
+    allowed_tools=["Read", "Write", "Bash"]
+)
+
+async for message in query(
+    prompt="Analyze the files in this directory",
+    options=options
+):
+    print(message)
+```
+
+```python Environment Variables
+from claude_agent_sdk import query, ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    env={
+        "ANTHROPIC_MODEL": "claude-opus-4-20250514",
+        "DEBUG": "true"
+    }
+)
+
+async for message in query(
+    prompt="Help me debug this issue",
+    options=options
+):
+    print(message)
+```
+
+</CodeGroup>
+
+## Permission Modes
+
+Control how Claude handles potentially dangerous operations:
+
+<Steps>
+
+<Step title="Default Mode">
+  Claude prompts before executing dangerous operations:
+  
+  ```python
+  options = ClaudeAgentOptions(
+      permission_mode="default"
+  )
+  ```
+</Step>
+
+<Step title="Accept Edits">
+  Automatically accept file edits (but still prompt for other operations):
+  
+  ```python
+  options = ClaudeAgentOptions(
+      permission_mode="acceptEdits"
+  )
+  ```
+</Step>
+
+<Step title="Bypass Permissions">
+  Allow all operations without prompts (use with caution):
+  
+  ```python
+  options = ClaudeAgentOptions(
+      permission_mode="bypassPermissions"
+  )
+  ```
+</Step>
+
+</Steps>
+
+## Complete Example
+
+Here's a practical example that creates a file and handles all message types:
+
+```python
+import asyncio
+from claude_agent_sdk import (
+    query,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    UserMessage,
+    SystemMessage,
+    ResultMessage,
+    TextBlock,
+    ToolUseBlock,
+    ToolResultBlock
+)
+
+async def create_hello_file():
+    """Create a hello.txt file using Claude."""
+    
+    options = ClaudeAgentOptions(
+        allowed_tools=["Write"],  # Allow file operations
+        permission_mode="acceptEdits",  # Auto-accept edits
+        system_prompt="You are a helpful assistant."
+    )
+    
+    print("Creating hello.txt file...\n")
+    
+    async for message in query(
+        prompt="Create a simple hello.txt file with a greeting message",
+        options=options
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+                elif isinstance(block, ToolUseBlock):
+                    print(f"Using tool: {block.name}")
+        
+        elif isinstance(message, UserMessage):
+            # Tool results come back as UserMessage
+            for block in message.content:
+                if isinstance(block, ToolResultBlock):
+                    print(f"Tool result: Success")
+        
+        elif isinstance(message, ResultMessage):
+            print(f"\n✓ Task completed")
+            if message.total_cost_usd:
+                print(f"Cost: ${message.total_cost_usd:.6f}")
+
+if __name__ == "__main__":
+    asyncio.run(create_hello_file())
+```
+
+## Streaming Mode
+
+For advanced use cases, you can stream multiple prompts:
+
+```python
+import asyncio
+from claude_agent_sdk import query
+
+async def stream_prompts():
+    """Stream multiple prompts to Claude."""
+    yield {
+        "type": "user",
+        "message": {"role": "user", "content": "What's the capital of Japan?"},
+        "parent_tool_use_id": None,
+        "session_id": "session-1"
+    }
+    
+    yield {
+        "type": "user",
+        "message": {"role": "user", "content": "What about France?"},
+        "parent_tool_use_id": None,
+        "session_id": "session-1"
+    }
+
+async def main():
+    async for message in query(prompt=stream_prompts()):
+        print(message)
+
+asyncio.run(main())
+```
+
+<Warning>
+  Streaming mode is still **unidirectional** - all prompts are sent first, then all responses are received. For true bidirectional communication, use [ClaudeSDKClient](/guides/interactive-conversations).
+</Warning>
+
+## Best Practices
+
+<AccordionGroup>
+
+<Accordion title="Handle All Message Types">
+  Always handle `AssistantMessage`, `UserMessage`, `SystemMessage`, and `ResultMessage` types to capture the full conversation flow.
+</Accordion>
+
+<Accordion title="Set Appropriate Permissions">
+  Use the most restrictive permission mode that works for your use case. Start with `default` and only escalate if needed.
+</Accordion>
+
+<Accordion title="Specify Working Directory">
+  When working with files, always set `cwd` in options to ensure Claude operates in the correct directory.
+</Accordion>
+
+<Accordion title="Limit Tool Access">
+  Use `allowed_tools` to restrict which tools Claude can use, improving security and reducing unexpected behavior.
+</Accordion>
+
+<Accordion title="Add System Prompts">
+  Provide clear context through `system_prompt` to guide Claude's responses and improve result quality.
+</Accordion>
+
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Interactive Conversations" icon="messages" href="/guides/interactive-conversations">
+  Learn how to use ClaudeSDKClient for bidirectional conversations
+</Card>
+
+<Card title="Custom Tools" icon="wrench" href="/guides/custom-tools">
+  Create custom tools to extend Claude's capabilities
+</Card>
+
+<Card title="Configuration Options" icon="sliders" href="/core-concepts/options">
+  Explore all available ClaudeAgentOptions
+</Card>
+
+<Card title="Message Types" icon="envelope" href="/core-concepts/messages">
+  Deep dive into message types and content blocks
+</Card>
+
+</CardGroup>

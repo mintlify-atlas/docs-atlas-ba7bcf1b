@@ -1,0 +1,395 @@
+---
+title: 'Working with MCP Servers'
+description: 'Learn how to use SDK and external MCP servers with the Claude Agent SDK'
+---
+
+The Claude Agent SDK supports both **SDK MCP servers** (in-process) and **external MCP servers** (separate processes). SDK servers run directly within your Python application, providing better performance and simpler deployment.
+
+## SDK MCP Servers (In-Process)
+
+SDK MCP servers are in-process MCP servers that run directly within your Python application, eliminating the need for separate processes that regular MCP servers require.
+
+### Benefits Over External Servers
+
+- **No subprocess management** - Runs in the same process as your application
+- **Better performance** - No IPC overhead for tool calls
+- **Simpler deployment** - Single Python process instead of multiple
+- **Easier debugging** - All code runs in the same process
+- **Type safety** - Direct Python function calls with type hints
+- **Direct access** - Tools have direct access to your application's state
+
+### Creating a Simple SDK MCP Server
+
+Use the `@tool` decorator to define tools and `create_sdk_mcp_server()` to bundle them:
+
+```python
+from claude_agent_sdk import (
+    tool,
+    create_sdk_mcp_server,
+    ClaudeAgentOptions,
+    ClaudeSDKClient
+)
+
+# Define a tool using the @tool decorator
+@tool("greet", "Greet a user", {"name": str})
+async def greet_user(args):
+    return {
+        "content": [
+            {"type": "text", "text": f"Hello, {args['name']}!"}
+        ]
+    }
+
+# Create an SDK MCP server
+server = create_sdk_mcp_server(
+    name="my-tools",
+    version="1.0.0",
+    tools=[greet_user]
+)
+
+# Use it with Claude
+options = ClaudeAgentOptions(
+    mcp_servers={"tools": server},
+    allowed_tools=["mcp__tools__greet"]
+)
+
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("Greet Alice")
+    async for msg in client.receive_response():
+        print(msg)
+```
+
+<Note>
+MCP tool names follow the pattern `mcp__<server_name>__<tool_name>`. For example, a tool named `greet` in a server named `tools` becomes `mcp__tools__greet`.
+</Note>
+
+### Complete Calculator Example
+
+Here's a complete example with multiple tools:
+
+```python
+from claude_agent_sdk import (
+    tool,
+    create_sdk_mcp_server,
+    ClaudeAgentOptions,
+    ClaudeSDKClient
+)
+from typing import Any
+
+# Define calculator tools
+@tool("add", "Add two numbers", {"a": float, "b": float})
+async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    result = args["a"] + args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} + {args['b']} = {result}"}]
+    }
+
+@tool("multiply", "Multiply two numbers", {"a": float, "b": float})
+async def multiply_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    result = args["a"] * args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} × {args['b']} = {result}"}]
+    }
+
+@tool("divide", "Divide one number by another", {"a": float, "b": float})
+async def divide_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    if args["b"] == 0:
+        return {
+            "content": [{"type": "text", "text": "Error: Division by zero"}],
+            "is_error": True
+        }
+    result = args["a"] / args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} ÷ {args['b']} = {result}"}]
+    }
+
+# Create the calculator server
+calculator = create_sdk_mcp_server(
+    name="calculator",
+    version="2.0.0",
+    tools=[add_numbers, multiply_numbers, divide_numbers]
+)
+
+# Configure and use
+options = ClaudeAgentOptions(
+    mcp_servers={"calc": calculator},
+    allowed_tools=[
+        "mcp__calc__add",
+        "mcp__calc__multiply",
+        "mcp__calc__divide"
+    ]
+)
+
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("Calculate 15 + 27")
+    async for msg in client.receive_response():
+        print(msg)
+```
+
+### Tool Input Schemas
+
+The `@tool` decorator supports different schema formats:
+
+```python
+# Simple type mapping
+@tool("simple", "Simple schema", {"name": str, "age": int})
+async def simple_tool(args):
+    return {"content": [{"type": "text", "text": "Result"}]}
+
+# JSON Schema for complex validation
+@tool("complex", "Complex schema", {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "email": {"type": "string", "format": "email"},
+        "age": {"type": "integer", "minimum": 0}
+    },
+    "required": ["name", "email"]
+})
+async def complex_tool(args):
+    return {"content": [{"type": "text", "text": "Result"}]}
+```
+
+### Accessing Application State
+
+SDK tools run in-process and can access your application's state directly:
+
+```python
+class DataStore:
+    def __init__(self):
+        self.items = []
+
+store = DataStore()
+
+@tool("add_item", "Add item to store", {"item": str})
+async def add_item(args):
+    store.items.append(args["item"])  # Direct access to application state
+    return {
+        "content": [{"type": "text", "text": f"Added: {args['item']}"}]
+    }
+
+@tool("list_items", "List all items", {})
+async def list_items(args):
+    items_str = ", ".join(store.items)
+    return {
+        "content": [{"type": "text", "text": f"Items: {items_str}"}]
+    }
+
+server = create_sdk_mcp_server(
+    name="store",
+    tools=[add_item, list_items]
+)
+```
+
+## External MCP Servers
+
+External MCP servers run as separate processes and communicate via stdio, HTTP, or SSE.
+
+### Stdio Server Configuration
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "external-calc": {
+            "type": "stdio",
+            "command": "python",
+            "args": ["-m", "calculator_server"],
+            "env": {"PYTHONPATH": "/path/to/modules"}
+        }
+    }
+)
+```
+
+### HTTP Server Configuration
+
+```python
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "http-server": {
+            "type": "http",
+            "url": "http://localhost:8080/mcp",
+            "headers": {
+                "Authorization": "Bearer token123"
+            }
+        }
+    }
+)
+```
+
+### SSE Server Configuration
+
+```python
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "sse-server": {
+            "type": "sse",
+            "url": "http://localhost:8080/sse",
+            "headers": {
+                "X-API-Key": "your-api-key"
+            }
+        }
+    }
+)
+```
+
+## Mixed Server Configuration
+
+You can use both SDK and external MCP servers together:
+
+```python
+from claude_agent_sdk import (
+    create_sdk_mcp_server,
+    tool,
+    ClaudeAgentOptions
+)
+
+# Create SDK server
+@tool("internal_tool", "Internal tool", {"arg": str})
+async def internal_tool(args):
+    return {"content": [{"type": "text", "text": "Result"}]}
+
+internal_server = create_sdk_mcp_server(
+    name="internal",
+    tools=[internal_tool]
+)
+
+# Configure with both types
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "internal": internal_server,  # SDK server (in-process)
+        "external": {                  # External server (subprocess)
+            "type": "stdio",
+            "command": "external-server"
+        }
+    },
+    allowed_tools=[
+        "mcp__internal__internal_tool",
+        "mcp__external__external_tool"
+    ]
+)
+```
+
+## Checking MCP Server Status
+
+You can check the connection status of your MCP servers:
+
+```python
+from claude_agent_sdk import ClaudeSDKClient
+
+async with ClaudeSDKClient(options=options) as client:
+    # Get MCP server status
+    status = await client.get_mcp_status()
+    
+    for server in status["mcpServers"]:
+        print(f"Server: {server['name']}")
+        print(f"Status: {server['status']}")
+        
+        if server['status'] == 'connected':
+            print(f"Server Info: {server.get('serverInfo')}")
+            print(f"Tools: {[tool['name'] for tool in server.get('tools', [])]}")
+        elif server['status'] == 'failed':
+            print(f"Error: {server.get('error')}")
+```
+
+Server status values:
+- `connected` - Server is connected and ready
+- `failed` - Connection failed
+- `needs-auth` - Server requires authentication
+- `pending` - Connection in progress
+- `disabled` - Server is disabled
+
+## Migrating from External to SDK Servers
+
+```python
+# BEFORE: External MCP server (separate process)
+options_before = ClaudeAgentOptions(
+    mcp_servers={
+        "calculator": {
+            "type": "stdio",
+            "command": "python",
+            "args": ["-m", "calculator_server"]
+        }
+    }
+)
+
+# AFTER: SDK MCP server (in-process)
+from my_tools import add, subtract  # Your tool functions
+
+calculator = create_sdk_mcp_server(
+    name="calculator",
+    tools=[add, subtract]
+)
+
+options_after = ClaudeAgentOptions(
+    mcp_servers={"calculator": calculator}
+)
+```
+
+## Loading MCP Servers from Configuration Files
+
+You can load MCP server configurations from a JSON file:
+
+```python
+from pathlib import Path
+from claude_agent_sdk import ClaudeAgentOptions
+
+# Point to a configuration file
+options = ClaudeAgentOptions(
+    mcp_servers="/path/to/mcp-servers.json"
+    # or use Path object
+    # mcp_servers=Path("/path/to/mcp-servers.json")
+)
+```
+
+The configuration file should follow the standard MCP server configuration format.
+
+## Error Handling
+
+SDK tools can return errors by setting `is_error: True`:
+
+```python
+@tool("risky_operation", "An operation that might fail", {"input": str})
+async def risky_operation(args):
+    try:
+        # Attempt operation
+        result = perform_operation(args["input"])
+        return {
+            "content": [{"type": "text", "text": f"Success: {result}"}]
+        }
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"Error: {str(e)}"}],
+            "is_error": True
+        }
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose SDK servers when possible">
+    SDK servers provide better performance and simpler deployment. Use external servers only when you need to integrate with existing services or languages other than Python.
+  </Accordion>
+
+  <Accordion title="Handle errors gracefully">
+    Always validate inputs and handle errors in your tool functions. Return `is_error: True` to indicate failures to Claude.
+  </Accordion>
+
+  <Accordion title="Use descriptive names and descriptions">
+    Clear tool names and descriptions help Claude understand when and how to use your tools.
+  </Accordion>
+
+  <Accordion title="Keep tools focused">
+    Each tool should do one thing well. Break complex operations into multiple focused tools.
+  </Accordion>
+
+  <Accordion title="Use allowed_tools for security">
+    Always specify `allowed_tools` to control which tools Claude can access, preventing unauthorized tool usage.
+  </Accordion>
+</AccordionGroup>
+
+## Related Resources
+
+- [Permission Management](/guides/permissions)
+- [API Reference: create_sdk_mcp_server](/api/create-sdk-mcp-server)
+- [API Reference: tool decorator](/api/tool)

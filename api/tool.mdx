@@ -1,0 +1,158 @@
+---
+title: "@tool"
+description: "Decorator for defining MCP tools with type safety"
+---
+
+## Overview
+
+The `@tool` decorator creates tools that can be used with SDK MCP servers. Tools run in-process within your Python application, providing better performance than external MCP servers.
+
+## Signature
+
+```python
+def tool(
+    name: str,
+    description: str,
+    input_schema: type | dict[str, Any],
+    annotations: ToolAnnotations | None = None,
+) -> Callable[[Callable[[Any], Awaitable[dict[str, Any]]]], SdkMcpTool[Any]]
+```
+
+## Parameters
+
+<ParamField path="name" type="str" required>
+  Unique identifier for the tool. This is what Claude will use to reference the tool in function calls.
+</ParamField>
+
+<ParamField path="description" type="str" required>
+  Human-readable description of what the tool does. This helps Claude understand when to use the tool.
+</ParamField>
+
+<ParamField path="input_schema" type="type | dict[str, Any]" required>
+  Schema defining the tool's input parameters. Can be either:
+  - A dictionary mapping parameter names to types (e.g., `{"text": str}`)
+  - A TypedDict class for more complex schemas
+  - A JSON Schema dictionary for full validation
+</ParamField>
+
+<ParamField path="annotations" type="ToolAnnotations | None" default="None">
+  Optional MCP tool annotations for additional metadata.
+</ParamField>
+
+## Returns
+
+A decorator function that wraps the tool implementation and returns an `SdkMcpTool` instance ready for use with `create_sdk_mcp_server()`.
+
+## Examples
+
+### Basic Tool
+
+Simple tool with a basic schema:
+
+```python
+from claude_agent_sdk import tool
+
+@tool("greet", "Greet a user", {"name": str})
+async def greet(args):
+    return {
+        "content": [
+            {"type": "text", "text": f"Hello, {args['name']}!"}
+        ]
+    }
+```
+
+### Tool with Multiple Parameters
+
+Tool that processes multiple inputs:
+
+```python
+@tool("add", "Add two numbers", {"a": float, "b": float})
+async def add_numbers(args):
+    result = args["a"] + args["b"]
+    return {
+        "content": [
+            {"type": "text", "text": f"Result: {result}"}
+        ]
+    }
+```
+
+### Tool with Error Handling
+
+Tool that handles errors gracefully:
+
+```python
+@tool("divide", "Divide two numbers", {"a": float, "b": float})
+async def divide(args):
+    if args["b"] == 0:
+        return {
+            "content": [
+                {"type": "text", "text": "Error: Division by zero"}
+            ],
+            "is_error": True
+        }
+    return {
+        "content": [
+            {"type": "text", "text": f"Result: {args['a'] / args['b']}"}
+        ]
+    }
+```
+
+## Tool Function Requirements
+
+<Note>
+  The tool function must follow these requirements:
+  - Must be async (defined with `async def`)
+  - Receives a single dict argument with the input parameters
+  - Should return a dict with a `"content"` key containing the response
+  - Errors can be indicated by including `"is_error": True` in the response
+</Note>
+
+## Return Format
+
+Tool functions should return a dictionary with the following structure:
+
+```python
+{
+    "content": [
+        {"type": "text", "text": "The response text"}
+    ],
+    "is_error": False  # Optional, indicates if this is an error response
+}
+```
+
+## Usage with SDK MCP Server
+
+Tools created with the `@tool` decorator are used with `create_sdk_mcp_server()`:
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server, query, ClaudeAgentOptions
+
+@tool("get_weather", "Get weather for a location", {"location": str})
+async def get_weather(args):
+    # Your implementation here
+    return {
+        "content": [
+            {"type": "text", "text": f"Weather in {args['location']}: Sunny, 72°F"}
+        ]
+    }
+
+# Create server with the tool
+server = create_sdk_mcp_server(
+    name="weather",
+    tools=[get_weather]
+)
+
+# Use with Claude
+result = await query(
+    prompt="What's the weather in San Francisco?",
+    options=ClaudeAgentOptions(
+        mcp_servers={"weather": server},
+        allowed_tools=["get_weather"]
+    )
+)
+```
+
+## See Also
+
+- [create_sdk_mcp_server()](/api/create-sdk-mcp-server) - Create an in-process MCP server
+- [ClaudeAgentOptions](/api/types/claude-agent-options) - Configuration for using servers with query()

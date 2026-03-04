@@ -1,0 +1,389 @@
+---
+title: "MCP Types"
+description: "MCP server configuration and status types for Claude Agent SDK"
+---
+
+## Overview
+
+The Claude Agent SDK supports Model Context Protocol (MCP) servers for extending Claude's capabilities with custom tools and resources.
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+mcp_servers = {
+    "filesystem": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/data"]
+    }
+}
+
+options = ClaudeAgentOptions(mcp_servers=mcp_servers)
+```
+
+## McpServerConfig
+
+Union type for all MCP server configuration types.
+
+```python
+McpServerConfig = (
+    McpStdioServerConfig
+    | McpSSEServerConfig
+    | McpHttpServerConfig
+    | McpSdkServerConfig
+)
+```
+
+## McpStdioServerConfig
+
+Configuration for stdio-based MCP servers (most common).
+
+```python
+class McpStdioServerConfig(TypedDict):
+    type: NotRequired[Literal["stdio"]]  # Optional, defaults to stdio
+    command: str
+    args: NotRequired[list[str]]
+    env: NotRequired[dict[str, str]]
+```
+
+<ParamField path="type" type="Literal['stdio']">
+  Server type. Optional for backwards compatibility (defaults to `"stdio"`).
+</ParamField>
+
+<ParamField path="command" type="str" required>
+  Command to execute (e.g., `"node"`, `"python"`, `"npx"`).
+</ParamField>
+
+<ParamField path="args" type="list[str]">
+  Command arguments.
+</ParamField>
+
+<ParamField path="env" type="dict[str, str]">
+  Environment variables for the server process.
+</ParamField>
+
+### Example
+
+```python
+mcp_servers = {
+    "filesystem": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/docs"],
+        "env": {"DEBUG": "true"}
+    },
+    "custom": {
+        "command": "python",
+        "args": ["-m", "my_mcp_server"]
+    }
+}
+```
+
+## McpSSEServerConfig
+
+Configuration for Server-Sent Events (SSE) MCP servers.
+
+```python
+class McpSSEServerConfig(TypedDict):
+    type: Literal["sse"]
+    url: str
+    headers: NotRequired[dict[str, str]]
+```
+
+<ParamField path="type" type="Literal['sse']" required>
+  Server type.
+</ParamField>
+
+<ParamField path="url" type="str" required>
+  SSE endpoint URL.
+</ParamField>
+
+<ParamField path="headers" type="dict[str, str]">
+  HTTP headers for the connection.
+</ParamField>
+
+### Example
+
+```python
+mcp_servers = {
+    "remote-sse": {
+        "type": "sse",
+        "url": "https://api.example.com/mcp",
+        "headers": {
+            "Authorization": "Bearer token123"
+        }
+    }
+}
+```
+
+## McpHttpServerConfig
+
+Configuration for HTTP-based MCP servers.
+
+```python
+class McpHttpServerConfig(TypedDict):
+    type: Literal["http"]
+    url: str
+    headers: NotRequired[dict[str, str]]
+```
+
+<ParamField path="type" type="Literal['http']" required>
+  Server type.
+</ParamField>
+
+<ParamField path="url" type="str" required>
+  HTTP endpoint URL.
+</ParamField>
+
+<ParamField path="headers" type="dict[str, str]">
+  HTTP headers for requests.
+</ParamField>
+
+### Example
+
+```python
+mcp_servers = {
+    "api-server": {
+        "type": "http",
+        "url": "https://mcp.example.com",
+        "headers": {
+            "X-API-Key": "secret"
+        }
+    }
+}
+```
+
+## McpSdkServerConfig
+
+Configuration for in-process MCP servers using the Python MCP SDK.
+
+```python
+class McpSdkServerConfig(TypedDict):
+    type: Literal["sdk"]
+    name: str
+    instance: McpServer
+```
+
+<ParamField path="type" type="Literal['sdk']" required>
+  Server type.
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  Server name identifier.
+</ParamField>
+
+<ParamField path="instance" type="McpServer" required>
+  MCP server instance from the `mcp` package.
+</ParamField>
+
+### Example
+
+```python
+from mcp.server import Server as McpServer
+from claude_agent_sdk import ClaudeAgentOptions
+
+# Create MCP server instance
+server = McpServer("my-server")
+
+# Register tools, resources, etc.
+@server.list_tools()
+async def list_tools():
+    return [{"name": "my_tool", "description": "Does something"}]
+
+mcp_servers = {
+    "custom-server": {
+        "type": "sdk",
+        "name": "my-server",
+        "instance": server
+    }
+}
+
+options = ClaudeAgentOptions(mcp_servers=mcp_servers)
+```
+
+## MCP Status Types
+
+Types returned by `ClaudeSDKClient.get_mcp_status()` for querying server connection status.
+
+### McpServerConnectionStatus
+
+```python
+McpServerConnectionStatus = Literal[
+    "connected",
+    "failed",
+    "needs-auth",
+    "pending",
+    "disabled"
+]
+```
+
+- `"connected"` - Server is connected and ready
+- `"failed"` - Connection failed (see `error` field)
+- `"needs-auth"` - Server requires authentication
+- `"pending"` - Connection in progress
+- `"disabled"` - Server is disabled
+
+### McpServerStatus
+
+Status information for a single MCP server.
+
+```python
+class McpServerStatus(TypedDict):
+    name: str
+    status: McpServerConnectionStatus
+    serverInfo: NotRequired[McpServerInfo]
+    error: NotRequired[str]
+    config: NotRequired[McpServerStatusConfig]
+    scope: NotRequired[str]
+    tools: NotRequired[list[McpToolInfo]]
+```
+
+<ResponseField name="name" type="str" required>
+  Server name as configured.
+</ResponseField>
+
+<ResponseField name="status" type="McpServerConnectionStatus" required>
+  Current connection status.
+</ResponseField>
+
+<ResponseField name="serverInfo" type="McpServerInfo">
+  Server information from MCP handshake (available when connected).
+  
+  ```python
+  {
+      "name": str,
+      "version": str
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="error" type="str">
+  Error message (available when status is `"failed"`).
+</ResponseField>
+
+<ResponseField name="config" type="McpServerStatusConfig">
+  Server configuration (includes URL for HTTP/SSE servers).
+</ResponseField>
+
+<ResponseField name="scope" type="str">
+  Configuration scope (e.g., `"project"`, `"user"`, `"local"`, `"claudeai"`, `"managed"`).
+</ResponseField>
+
+<ResponseField name="tools" type="list[McpToolInfo]">
+  Tools provided by this server (available when connected).
+  
+  ```python
+  {
+      "name": str,
+      "description": str,
+      "annotations": {
+          "readOnly": bool,
+          "destructive": bool,
+          "openWorld": bool
+      }
+  }
+  ```
+</ResponseField>
+
+### McpStatusResponse
+
+Response from `ClaudeSDKClient.get_mcp_status()`.
+
+```python
+class McpStatusResponse(TypedDict):
+    mcpServers: list[McpServerStatus]
+```
+
+### Example
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+mcp_servers = {
+    "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    }
+}
+
+client = ClaudeSDKClient(ClaudeAgentOptions(mcp_servers=mcp_servers))
+
+# Check MCP server status
+status = await client.get_mcp_status()
+
+for server in status["mcpServers"]:
+    print(f"Server: {server['name']}")
+    print(f"Status: {server['status']}")
+    
+    if server["status"] == "connected":
+        print(f"Tools: {len(server.get('tools', []))}")
+        for tool in server.get("tools", []):
+            print(f"  - {tool['name']}: {tool.get('description', 'N/A')}")
+    elif server["status"] == "failed":
+        print(f"Error: {server.get('error', 'Unknown')}")
+```
+
+## MCP Control Methods
+
+The SDK provides methods for controlling MCP servers:
+
+### Reconnect Server
+
+```python
+await client.mcp_reconnect("server-name")
+```
+
+Reconnects a disconnected or failed MCP server.
+
+### Toggle Server
+
+```python
+# Disable server
+await client.mcp_toggle("server-name", enabled=False)
+
+# Enable server
+await client.mcp_toggle("server-name", enabled=True)
+```
+
+Enables or disables an MCP server.
+
+### Send MCP Message
+
+```python
+await client.send_mcp_message("server-name", message_data)
+```
+
+Sends a raw MCP message to a server.
+
+## Loading MCP Servers from File
+
+You can load MCP server configurations from a JSON file:
+
+```python
+from pathlib import Path
+
+options = ClaudeAgentOptions(
+    mcp_servers=Path("/path/to/mcp-config.json")
+)
+```
+
+**mcp-config.json:**
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/data"]
+    },
+    "remote": {
+      "type": "sse",
+      "url": "https://api.example.com/mcp"
+    }
+  }
+}
+```
+
+## Related Types
+
+- [ClaudeAgentOptions](/api/types/claude-agent-options) - Main configuration including MCP servers
+- [Errors](/api/types/errors) - Error types for MCP connection failures

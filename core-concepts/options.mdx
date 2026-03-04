@@ -1,0 +1,576 @@
+---
+title: "ClaudeAgentOptions"
+description: "Configuration options for customizing Claude Agent SDK behavior"
+---
+
+The `ClaudeAgentOptions` dataclass provides comprehensive configuration for both `query()` and `ClaudeSDKClient`.
+
+## Basic Configuration
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    model="claude-sonnet-4-5",
+    cwd="/path/to/project",
+    permission_mode="default",
+    system_prompt="You are an expert Python developer"
+)
+```
+
+## Configuration Options
+
+### Model and System
+
+<ParamField path="model" type="str | None" default="None">
+  The AI model to use. Examples:
+  - `"claude-sonnet-4-5"`
+  - `"claude-opus-4-1-20250805"`
+  - `"claude-opus-4-20250514"`
+  
+  If not specified, uses the default model from Claude Code.
+</ParamField>
+
+<ParamField path="fallback_model" type="str | None" default="None">
+  Fallback model to use if the primary model fails or is unavailable.
+</ParamField>
+
+<ParamField path="system_prompt" type="str | SystemPromptPreset | None" default="None">
+  System prompt to guide Claude's behavior. Can be:
+  - A string with custom instructions
+  - A `SystemPromptPreset` dictionary:
+    ```python
+    {
+        "type": "preset",
+        "preset": "claude_code",
+        "append": "Additional instructions here"
+    }
+    ```
+</ParamField>
+
+<ParamField path="betas" type="list[SdkBeta]" default="[]">
+  Beta features to enable. See [Anthropic API beta headers](https://docs.anthropic.com/en/api/beta-headers).
+  
+  Example: `["context-1m-2025-08-07"]`
+</ParamField>
+
+### Working Directory
+
+<ParamField path="cwd" type="str | Path | None" default="None">
+  Working directory for the conversation. Claude will have access to files in this directory.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      cwd="/home/user/my-project"
+  )
+  ```
+</ParamField>
+
+<ParamField path="add_dirs" type="list[str | Path]" default="[]">
+  Additional directories to give Claude access to beyond the `cwd`.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      cwd="/home/user/project",
+      add_dirs=["/home/user/shared", "/home/user/docs"]
+  )
+  ```
+</ParamField>
+
+### Tools Configuration
+
+<ParamField path="tools" type="list[str] | ToolsPreset | None" default="None">
+  Tools available to Claude. Can be:
+  - A list of tool names: `["Bash", "Read", "Write"]`
+  - A preset: `{"type": "preset", "preset": "claude_code"}`
+  - `None` to use default tools
+</ParamField>
+
+<ParamField path="allowed_tools" type="list[str]" default="[]">
+  Whitelist of allowed tools. If specified, only these tools will be available.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      allowed_tools=["Read", "Grep", "Glob"]  # Read-only tools
+  )
+  ```
+</ParamField>
+
+<ParamField path="disallowed_tools" type="list[str]" default="[]">
+  Blacklist of disallowed tools. These tools will be removed from the available set.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      disallowed_tools=["Bash", "Write", "Edit"]  # Prevent modifications
+  )
+  ```
+</ParamField>
+
+### Permissions
+
+<ParamField path="permission_mode" type="PermissionMode | None" default="None">
+  Controls tool execution permissions:
+  - `"default"` - CLI prompts for dangerous tools
+  - `"acceptEdits"` - Auto-accept file edits
+  - `"plan"` - Planning mode (read-only)
+  - `"bypassPermissions"` - Allow all tools (use with caution)
+  
+  ```python
+  options = ClaudeAgentOptions(
+      permission_mode="acceptEdits"  # Auto-approve file changes
+  )
+  ```
+</ParamField>
+
+<ParamField path="permission_prompt_tool_name" type="str | None" default="None">
+  Tool name to use for permission prompts. Set to `"stdio"` when using `can_use_tool` callback (set automatically by the SDK).
+</ParamField>
+
+<ParamField path="can_use_tool" type="CanUseTool | None" default="None">
+  Callback function for custom tool permission logic. Must be used with streaming mode (ClaudeSDKClient or AsyncIterable prompt).
+  
+  ```python
+  async def custom_permission_handler(
+      tool_name: str,
+      tool_input: dict[str, Any],
+      context: ToolPermissionContext
+  ) -> PermissionResult:
+      if tool_name == "Bash":
+          if "rm" in tool_input.get("command", ""):
+              return PermissionResultDeny(
+                  behavior="deny",
+                  message="Dangerous command blocked"
+              )
+      return PermissionResultAllow(behavior="allow")
+  
+  options = ClaudeAgentOptions(
+      can_use_tool=custom_permission_handler
+  )
+  ```
+</ParamField>
+
+### Conversation Management
+
+<ParamField path="continue_conversation" type="bool" default="False">
+  Continue the most recent conversation instead of starting a new one.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      continue_conversation=True
+  )
+  ```
+</ParamField>
+
+<ParamField path="resume" type="str | None" default="None">
+  Resume a specific session by session ID.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      resume="session-uuid-here"
+  )
+  ```
+</ParamField>
+
+<ParamField path="fork_session" type="bool" default="False">
+  When resuming, fork to a new session ID rather than continuing the previous session.
+</ParamField>
+
+<ParamField path="enable_file_checkpointing" type="bool" default="False">
+  Enable file checkpointing to track file changes during the session. Required for `rewind_files()`.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      enable_file_checkpointing=True,
+      extra_args={"replay-user-messages": None}  # Get message UUIDs
+  )
+  ```
+</ParamField>
+
+### Budget and Limits
+
+<ParamField path="max_turns" type="int | None" default="None">
+  Maximum number of conversation turns before stopping.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      max_turns=10  # Limit to 10 back-and-forth exchanges
+  )
+  ```
+</ParamField>
+
+<ParamField path="max_budget_usd" type="float | None" default="None">
+  Maximum cost in USD before stopping the conversation.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      max_budget_usd=0.50  # Stop after $0.50
+  )
+  ```
+</ParamField>
+
+### MCP Servers
+
+<ParamField path="mcp_servers" type="dict[str, McpServerConfig] | str | Path" default="{}">
+  MCP (Model Context Protocol) server configurations. Can be:
+  - A dictionary of server configs
+  - A path to a JSON config file
+  
+  ```python
+  # Stdio server
+  options = ClaudeAgentOptions(
+      mcp_servers={
+          "filesystem": {
+              "type": "stdio",
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+          }
+      }
+  )
+  
+  # SSE server
+  options = ClaudeAgentOptions(
+      mcp_servers={
+          "weather": {
+              "type": "sse",
+              "url": "http://localhost:8080/sse"
+          }
+      }
+  )
+  
+  # SDK server (in-process)
+  from mcp.server import Server
+  
+  my_server = Server("my-server")
+  
+  options = ClaudeAgentOptions(
+      mcp_servers={
+          "custom": {
+              "type": "sdk",
+              "name": "my-server",
+              "instance": my_server
+          }
+      }
+  )
+  ```
+</ParamField>
+
+### Hooks
+
+<ParamField path="hooks" type="dict[HookEvent, list[HookMatcher]] | None" default="None">
+  Hook callbacks for intercepting tool use and other events. See [Hooks documentation](https://docs.anthropic.com/en/docs/claude-code/hooks) for details.
+  
+  ```python
+  async def pre_tool_use_hook(
+      input: HookInput,
+      tool_use_id: str | None,
+      context: HookContext
+  ) -> HookJSONOutput:
+      if input["tool_name"] == "Bash":
+          return {
+              "hookSpecificOutput": {
+                  "hookEventName": "PreToolUse",
+                  "additionalContext": "Be careful with this command"
+              }
+          }
+      return {"continue_": True}
+  
+  options = ClaudeAgentOptions(
+      hooks={
+          "PreToolUse": [
+              HookMatcher(
+                  matcher="Bash",
+                  hooks=[pre_tool_use_hook],
+                  timeout=30.0
+              )
+          ]
+      }
+  )
+  ```
+</ParamField>
+
+### Agents
+
+<ParamField path="agents" type="dict[str, AgentDefinition] | None" default="None">
+  Custom agent definitions for specialized tasks.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      agents={
+          "code-reviewer": AgentDefinition(
+              description="Reviews code for security issues",
+              prompt="You are a security expert",
+              tools=["Read", "Grep"],
+              model="opus"
+          )
+      }
+  )
+  ```
+</ParamField>
+
+### Thinking Configuration
+
+<ParamField path="thinking" type="ThinkingConfig | None" default="None">
+  Controls extended thinking behavior. Overrides `max_thinking_tokens` if set.
+  
+  ```python
+  # Adaptive thinking (default)
+  options = ClaudeAgentOptions(
+      thinking={"type": "adaptive"}
+  )
+  
+  # Enabled with budget
+  options = ClaudeAgentOptions(
+      thinking={"type": "enabled", "budget_tokens": 10000}
+  )
+  
+  # Disabled
+  options = ClaudeAgentOptions(
+      thinking={"type": "disabled"}
+  )
+  ```
+</ParamField>
+
+<ParamField path="max_thinking_tokens" type="int | None" default="None">
+  **Deprecated**: Use `thinking` instead. Maximum tokens for thinking blocks.
+</ParamField>
+
+<ParamField path="effort" type="Literal['low', 'medium', 'high', 'max'] | None" default="None">
+  Effort level for thinking depth.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      effort="high"  # Maximum thinking depth
+  )
+  ```
+</ParamField>
+
+### Structured Output
+
+<ParamField path="output_format" type="dict[str, Any] | None" default="None">
+  Output format for structured outputs. Matches Messages API structure.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      output_format={
+          "type": "json_schema",
+          "schema": {
+              "type": "object",
+              "properties": {
+                  "summary": {"type": "string"},
+                  "issues": {
+                      "type": "array",
+                      "items": {"type": "string"}
+                  }
+              },
+              "required": ["summary", "issues"]
+          }
+      }
+  )
+  ```
+  
+  Access the structured output in the `ResultMessage`:
+  ```python
+  if isinstance(msg, ResultMessage):
+      print(msg.structured_output)
+  ```
+</ParamField>
+
+### Sandbox Configuration
+
+<ParamField path="sandbox" type="SandboxSettings | None" default="None">
+  Sandbox settings for bash command isolation (macOS/Linux only). Filesystem and network restrictions are configured via permission rules, not via these settings.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      sandbox={
+          "enabled": True,
+          "autoAllowBashIfSandboxed": True,
+          "excludedCommands": ["docker", "git"],
+          "allowUnsandboxedCommands": True,
+          "network": {
+              "allowUnixSockets": ["/var/run/docker.sock"],
+              "allowLocalBinding": True
+          }
+      }
+  )
+  ```
+</ParamField>
+
+### Advanced Options
+
+<ParamField path="cli_path" type="str | Path | None" default="None">
+  Path to the Claude Code CLI executable. If not specified, searches in PATH.
+</ParamField>
+
+<ParamField path="settings" type="str | None" default="None">
+  Path to custom settings file.
+</ParamField>
+
+<ParamField path="setting_sources" type="list[SettingSource] | None" default="None">
+  Setting sources to load: `["user", "project", "local"]`
+</ParamField>
+
+<ParamField path="user" type="str | None" default="None">
+  User identifier for the session.
+</ParamField>
+
+<ParamField path="env" type="dict[str, str]" default="{}">
+  Environment variables to pass to the CLI process.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      env={
+          "CUSTOM_API_KEY": "key-123",
+          "DEBUG": "true"
+      }
+  )
+  ```
+</ParamField>
+
+<ParamField path="extra_args" type="dict[str, str | None]" default="{}">
+  Pass arbitrary CLI flags. Keys are flag names (without `--`), values are flag values or `None` for boolean flags.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      extra_args={
+          "replay-user-messages": None,  # Boolean flag
+          "output-style": "transcript"    # Flag with value
+      }
+  )
+  ```
+</ParamField>
+
+<ParamField path="max_buffer_size" type="int | None" default="None">
+  Maximum bytes when buffering CLI stdout.
+</ParamField>
+
+<ParamField path="include_partial_messages" type="bool" default="False">
+  Include partial message updates (StreamEvent) during streaming.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      include_partial_messages=True
+  )
+  
+  async for msg in client.receive_messages():
+      if isinstance(msg, StreamEvent):
+          # Handle partial updates
+          print(msg.event)
+  ```
+</ParamField>
+
+<ParamField path="stderr" type="Callable[[str], None] | None" default="None">
+  Callback for stderr output from the CLI.
+  
+  ```python
+  def handle_stderr(line: str):
+      print(f"CLI stderr: {line}")
+  
+  options = ClaudeAgentOptions(
+      stderr=handle_stderr
+  )
+  ```
+</ParamField>
+
+<ParamField path="debug_stderr" type="Any" default="sys.stderr">
+  **Deprecated**: Use `stderr` callback instead. File-like object for debug output.
+</ParamField>
+
+<ParamField path="plugins" type="list[SdkPluginConfig]" default="[]">
+  Plugin configurations for custom plugins.
+  
+  ```python
+  options = ClaudeAgentOptions(
+      plugins=[
+          {"type": "local", "path": "/path/to/plugin"}
+      ]
+  )
+  ```
+</ParamField>
+
+## Complete Example
+
+```python
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    PermissionResultAllow,
+    PermissionResultDeny,
+)
+
+async def custom_permission_handler(tool_name, tool_input, context):
+    """Custom permission logic."""
+    if tool_name == "Bash":
+        command = tool_input.get("command", "")
+        if any(dangerous in command for dangerous in ["rm -rf", "format"]):
+            return PermissionResultDeny(
+                behavior="deny",
+                message="Dangerous command blocked for safety"
+            )
+    return PermissionResultAllow(behavior="allow")
+
+async def main():
+    options = ClaudeAgentOptions(
+        # Model configuration
+        model="claude-sonnet-4-5",
+        fallback_model="claude-opus-4-1-20250805",
+        system_prompt="You are an expert Python developer",
+        
+        # Working directory
+        cwd="/home/user/my-project",
+        add_dirs=["/home/user/shared-libs"],
+        
+        # Permissions
+        permission_mode="default",
+        can_use_tool=custom_permission_handler,
+        
+        # Tools
+        allowed_tools=["Bash", "Read", "Write", "Edit", "Grep"],
+        
+        # Limits
+        max_turns=20,
+        max_budget_usd=1.0,
+        
+        # Thinking
+        thinking={"type": "adaptive"},
+        effort="high",
+        
+        # MCP servers
+        mcp_servers={
+            "filesystem": {
+                "type": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+            }
+        },
+        
+        # Structured output
+        output_format={
+            "type": "json_schema",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "files_modified": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["summary"]
+            }
+        },
+        
+        # Advanced
+        include_partial_messages=True,
+        extra_args={"replay-user-messages": None},
+        stderr=lambda line: print(f"CLI: {line}")
+    )
+    
+    async with ClaudeSDKClient(options) as client:
+        await client.query("Refactor this module")
+        
+        async for msg in client.receive_response():
+            # Process messages
+            pass
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+```

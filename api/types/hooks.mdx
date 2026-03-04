@@ -1,0 +1,510 @@
+---
+title: "Hook Types"
+description: "Hook-related types for lifecycle event handling in Claude Agent SDK"
+---
+
+## Overview
+
+Hooks allow you to intercept and control Claude's behavior at key lifecycle events like tool usage, prompt submission, and task execution.
+
+```python
+from claude_agent_sdk.types import HookCallback, HookMatcher, HookEvent
+
+hooks = {
+    "PreToolUse": [
+        HookMatcher(
+            matcher="Bash",
+            hooks=[my_bash_hook],
+            timeout=30.0
+        )
+    ]
+}
+```
+
+## HookEvent
+
+Supported hook event types.
+
+```python
+HookEvent = Literal[
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "UserPromptSubmit",
+    "Stop",
+    "SubagentStop",
+    "PreCompact",
+    "Notification",
+    "SubagentStart",
+    "PermissionRequest"
+]
+```
+
+<ParamField path="PreToolUse" type="HookEvent">
+  Fires before a tool is executed. Can approve, deny, or modify tool input.
+</ParamField>
+
+<ParamField path="PostToolUse" type="HookEvent">
+  Fires after successful tool execution. Can add context or modify output.
+</ParamField>
+
+<ParamField path="PostToolUseFailure" type="HookEvent">
+  Fires when tool execution fails. Can add error context.
+</ParamField>
+
+<ParamField path="UserPromptSubmit" type="HookEvent">
+  Fires when user submits a prompt. Can add context to the prompt.
+</ParamField>
+
+<ParamField path="Stop" type="HookEvent">
+  Fires when the main session stops.
+</ParamField>
+
+<ParamField path="SubagentStop" type="HookEvent">
+  Fires when a sub-agent (Task tool) completes.
+</ParamField>
+
+<ParamField path="PreCompact" type="HookEvent">
+  Fires before conversation compaction.
+</ParamField>
+
+<ParamField path="Notification" type="HookEvent">
+  Fires for system notifications.
+</ParamField>
+
+<ParamField path="SubagentStart" type="HookEvent">
+  Fires when a sub-agent starts.
+</ParamField>
+
+<ParamField path="PermissionRequest" type="HookEvent">
+  Fires when permission is requested for a tool.
+</ParamField>
+
+## HookCallback
+
+Function signature for hook callbacks.
+
+```python
+HookCallback = Callable[
+    [HookInput, str | None, HookContext],
+    Awaitable[HookJSONOutput]
+]
+```
+
+Hook callbacks receive:
+1. `input: HookInput` - Strongly-typed input data for the event
+2. `tool_use_id: str | None` - Optional tool use identifier
+3. `context: HookContext` - Hook context (currently contains signal placeholder)
+
+And must return a `HookJSONOutput` dictionary.
+
+### Example
+
+```python
+async def my_hook(
+    input: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    if input["hook_event_name"] == "PreToolUse":
+        tool_name = input["tool_name"]
+        print(f"About to use tool: {tool_name}")
+        
+        return {
+            "continue_": True,
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow"
+            }
+        }
+    
+    return {"continue_": True}
+```
+
+## HookMatcher
+
+Configuration for matching and handling hook events.
+
+```python
+@dataclass
+class HookMatcher:
+    matcher: str | None = None
+    hooks: list[HookCallback] = field(default_factory=list)
+    timeout: float | None = None
+```
+
+<ParamField path="matcher" type="str | None">
+  Pattern to match against. For `PreToolUse`, this can be a tool name like `"Bash"` or a regex pattern like `"Write|Edit|MultiEdit"`.
+  
+  See [hook matcher documentation](https://docs.anthropic.com/en/docs/claude-code/hooks#structure) for details.
+</ParamField>
+
+<ParamField path="hooks" type="list[HookCallback]">
+  List of callback functions to execute for this matcher.
+</ParamField>
+
+<ParamField path="timeout" type="float | None">
+  Timeout in seconds for all hooks in this matcher (default: 60).
+</ParamField>
+
+### Example
+
+```python
+hooks = {
+    "PreToolUse": [
+        HookMatcher(
+            matcher="Bash",
+            hooks=[bash_safety_check],
+            timeout=30.0
+        ),
+        HookMatcher(
+            matcher="Write|Edit",
+            hooks=[file_write_logger],
+            timeout=10.0
+        )
+    ],
+    "PostToolUse": [
+        HookMatcher(
+            matcher=None,  # Match all tools
+            hooks=[log_all_tool_uses]
+        )
+    ]
+}
+
+options = ClaudeAgentOptions(hooks=hooks)
+```
+
+## HookInput Types
+
+Strongly-typed input for each hook event. All hook inputs extend `BaseHookInput`.
+
+### BaseHookInput
+
+```python
+class BaseHookInput(TypedDict):
+    session_id: str
+    transcript_path: str
+    cwd: str
+    permission_mode: NotRequired[str]
+```
+
+### PreToolUseHookInput
+
+```python
+class PreToolUseHookInput(BaseHookInput):
+    hook_event_name: Literal["PreToolUse"]
+    tool_name: str
+    tool_input: dict[str, Any]
+    tool_use_id: str
+    agent_id: NotRequired[str]      # Present in sub-agents
+    agent_type: NotRequired[str]    # Present with --agent or in sub-agents
+```
+
+### PostToolUseHookInput
+
+```python
+class PostToolUseHookInput(BaseHookInput):
+    hook_event_name: Literal["PostToolUse"]
+    tool_name: str
+    tool_input: dict[str, Any]
+    tool_response: Any
+    tool_use_id: str
+    agent_id: NotRequired[str]
+    agent_type: NotRequired[str]
+```
+
+### PostToolUseFailureHookInput
+
+```python
+class PostToolUseFailureHookInput(BaseHookInput):
+    hook_event_name: Literal["PostToolUseFailure"]
+    tool_name: str
+    tool_input: dict[str, Any]
+    tool_use_id: str
+    error: str
+    is_interrupt: NotRequired[bool]
+    agent_id: NotRequired[str]
+    agent_type: NotRequired[str]
+```
+
+### UserPromptSubmitHookInput
+
+```python
+class UserPromptSubmitHookInput(BaseHookInput):
+    hook_event_name: Literal["UserPromptSubmit"]
+    prompt: str
+```
+
+### StopHookInput
+
+```python
+class StopHookInput(BaseHookInput):
+    hook_event_name: Literal["Stop"]
+    stop_hook_active: bool
+```
+
+### SubagentStopHookInput
+
+```python
+class SubagentStopHookInput(BaseHookInput):
+    hook_event_name: Literal["SubagentStop"]
+    stop_hook_active: bool
+    agent_id: str
+    agent_transcript_path: str
+    agent_type: str
+```
+
+### PreCompactHookInput
+
+```python
+class PreCompactHookInput(BaseHookInput):
+    hook_event_name: Literal["PreCompact"]
+    trigger: Literal["manual", "auto"]
+    custom_instructions: str | None
+```
+
+### NotificationHookInput
+
+```python
+class NotificationHookInput(BaseHookInput):
+    hook_event_name: Literal["Notification"]
+    message: str
+    title: NotRequired[str]
+    notification_type: str
+```
+
+### SubagentStartHookInput
+
+```python
+class SubagentStartHookInput(BaseHookInput):
+    hook_event_name: Literal["SubagentStart"]
+    agent_id: str
+    agent_type: str
+```
+
+### PermissionRequestHookInput
+
+```python
+class PermissionRequestHookInput(BaseHookInput):
+    hook_event_name: Literal["PermissionRequest"]
+    tool_name: str
+    tool_input: dict[str, Any]
+    permission_suggestions: NotRequired[list[Any]]
+    agent_id: NotRequired[str]
+    agent_type: NotRequired[str]
+```
+
+## HookJSONOutput Types
+
+Output types for hook callbacks. Can be synchronous or asynchronous.
+
+### SyncHookJSONOutput
+
+```python
+class SyncHookJSONOutput(TypedDict):
+    continue_: NotRequired[bool]              # Default: True
+    suppressOutput: NotRequired[bool]         # Default: False
+    stopReason: NotRequired[str]
+    decision: NotRequired[Literal["block"]]
+    systemMessage: NotRequired[str]
+    reason: NotRequired[str]
+    hookSpecificOutput: NotRequired[HookSpecificOutput]
+```
+
+<ParamField path="continue_" type="bool">
+  Whether Claude should proceed after hook execution. Note: Use `continue_` in Python (converted to `continue` for CLI).
+</ParamField>
+
+<ParamField path="suppressOutput" type="bool">
+  Hide stdout from transcript mode.
+</ParamField>
+
+<ParamField path="stopReason" type="str">
+  Message shown when `continue_` is False.
+</ParamField>
+
+<ParamField path="decision" type="Literal['block']">
+  Set to `"block"` to indicate blocking behavior.
+</ParamField>
+
+<ParamField path="systemMessage" type="str">
+  Warning message displayed to the user.
+</ParamField>
+
+<ParamField path="reason" type="str">
+  Feedback message for Claude about the decision.
+</ParamField>
+
+<ParamField path="hookSpecificOutput" type="HookSpecificOutput">
+  Event-specific controls (see below).
+</ParamField>
+
+### AsyncHookJSONOutput
+
+```python
+class AsyncHookJSONOutput(TypedDict):
+    async_: Literal[True]           # Use async_ in Python
+    asyncTimeout: NotRequired[int]  # Milliseconds
+```
+
+Defers hook execution. Use for long-running operations.
+
+### HookSpecificOutput
+
+Event-specific output for fine-grained control.
+
+<Expandable title="PreToolUseHookSpecificOutput">
+  ```python
+  class PreToolUseHookSpecificOutput(TypedDict):
+      hookEventName: Literal["PreToolUse"]
+      permissionDecision: NotRequired[Literal["allow", "deny", "ask"]]
+      permissionDecisionReason: NotRequired[str]
+      updatedInput: NotRequired[dict[str, Any]]
+      additionalContext: NotRequired[str]
+  ```
+  
+  <ParamField path="permissionDecision" type="Literal['allow', 'deny', 'ask']">
+    Override permission decision for this tool use.
+  </ParamField>
+  
+  <ParamField path="permissionDecisionReason" type="str">
+    Reason for the permission decision.
+  </ParamField>
+  
+  <ParamField path="updatedInput" type="dict[str, Any]">
+    Modified tool input parameters.
+  </ParamField>
+  
+  <ParamField path="additionalContext" type="str">
+    Additional context to provide to Claude.
+  </ParamField>
+</Expandable>
+
+<Expandable title="PostToolUseHookSpecificOutput">
+  ```python
+  class PostToolUseHookSpecificOutput(TypedDict):
+      hookEventName: Literal["PostToolUse"]
+      additionalContext: NotRequired[str]
+      updatedMCPToolOutput: NotRequired[Any]
+  ```
+  
+  <ParamField path="additionalContext" type="str">
+    Additional context to provide to Claude.
+  </ParamField>
+  
+  <ParamField path="updatedMCPToolOutput" type="Any">
+    Modified tool output.
+  </ParamField>
+</Expandable>
+
+<Expandable title="PostToolUseFailureHookSpecificOutput">
+  ```python
+  class PostToolUseFailureHookSpecificOutput(TypedDict):
+      hookEventName: Literal["PostToolUseFailure"]
+      additionalContext: NotRequired[str]
+  ```
+</Expandable>
+
+<Expandable title="Other Hook-Specific Outputs">
+  Similar structures exist for:
+  - `UserPromptSubmitHookSpecificOutput`
+  - `SessionStartHookSpecificOutput`
+  - `NotificationHookSpecificOutput`
+  - `SubagentStartHookSpecificOutput`
+  - `PermissionRequestHookSpecificOutput`
+</Expandable>
+
+## HookContext
+
+Context information passed to hook callbacks.
+
+```python
+class HookContext(TypedDict):
+    signal: Any | None  # Future: abort signal support
+```
+
+Currently a placeholder for future abort signal support.
+
+## Complete Example
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from claude_agent_sdk.types import (
+    HookCallback,
+    HookInput,
+    HookContext,
+    HookJSONOutput,
+    HookMatcher,
+)
+
+async def bash_safety_hook(
+    input: HookInput,
+    tool_use_id: str | None,
+    context: HookContext,
+) -> HookJSONOutput:
+    """Prevent dangerous bash commands."""
+    if input["hook_event_name"] != "PreToolUse":
+        return {"continue_": True}
+    
+    command = input["tool_input"].get("command", "")
+    
+    # Block destructive commands
+    if any(cmd in command for cmd in ["rm -rf", "mkfs", "dd if="]):
+        return {
+            "continue_": False,
+            "stopReason": "Dangerous command blocked",
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "Command contains dangerous operations"
+            }
+        }
+    
+    return {"continue_": True}
+
+async def tool_logger(
+    input: HookInput,
+    tool_use_id: str | None,
+    context: HookContext,
+) -> HookJSONOutput:
+    """Log all tool uses."""
+    if input["hook_event_name"] == "PostToolUse":
+        tool_name = input["tool_name"]
+        print(f"✓ Tool completed: {tool_name}")
+    elif input["hook_event_name"] == "PostToolUseFailure":
+        tool_name = input["tool_name"]
+        error = input["error"]
+        print(f"✗ Tool failed: {tool_name} - {error}")
+    
+    return {"continue_": True}
+
+options = ClaudeAgentOptions(
+    hooks={
+        "PreToolUse": [
+            HookMatcher(
+                matcher="Bash",
+                hooks=[bash_safety_hook],
+                timeout=10.0
+            )
+        ],
+        "PostToolUse": [
+            HookMatcher(
+                matcher=None,  # All tools
+                hooks=[tool_logger]
+            )
+        ],
+        "PostToolUseFailure": [
+            HookMatcher(
+                matcher=None,
+                hooks=[tool_logger]
+            )
+        ]
+    }
+)
+
+client = ClaudeSDKClient(options)
+```
+
+<Warning>
+  Python uses `async_` and `continue_` (with underscores) to avoid keyword conflicts. These are automatically converted to `async` and `continue` when sent to the CLI.
+</Warning>

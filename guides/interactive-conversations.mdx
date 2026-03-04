@@ -1,0 +1,545 @@
+---
+title: 'Interactive Conversations'
+description: 'Use ClaudeSDKClient for bidirectional, stateful conversations with full control'
+---
+
+## Overview
+
+The `ClaudeSDKClient` provides full control over interactive conversations with Claude. Unlike the one-shot `query()` function, the client maintains conversation state and allows bidirectional communication.
+
+<Info>
+  For simple one-off questions, use the [query() function](/guides/basic-usage) instead.
+</Info>
+
+## When to Use ClaudeSDKClient
+
+Use `ClaudeSDKClient` when you need:
+
+- **Multi-turn conversations** - Back-and-forth dialogue with context
+- **Dynamic messaging** - Send messages based on Claude's responses
+- **Interactive applications** - Chat interfaces, REPL-like tools
+- **Interrupts** - Stop execution and change direction
+- **Session management** - Long-running conversations with state
+- **Real-time applications** - React to user input as it comes
+
+## Basic Usage with Context Manager
+
+The simplest way to use `ClaudeSDKClient` is with an async context manager:
+
+```python
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient, AssistantMessage, TextBlock
+
+async def main():
+    async with ClaudeSDKClient() as client:
+        # Send a query
+        await client.query("What is 2+2?")
+        
+        # Receive the response
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+
+asyncio.run(main())
+```
+
+## Multi-Turn Conversations
+
+The client maintains conversation context across multiple exchanges:
+
+```python
+import asyncio
+from claude_agent_sdk import (
+    ClaudeSDKClient,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock
+)
+
+async def multi_turn_example():
+    async with ClaudeSDKClient() as client:
+        # First turn
+        print("User: What's the capital of France?")
+        await client.query("What's the capital of France?")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+        
+        # Second turn - Claude remembers the context
+        print("\nUser: What's the population of that city?")
+        await client.query("What's the population of that city?")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+
+asyncio.run(multi_turn_example())
+```
+
+## Manual Connection Management
+
+For more control, manage the connection lifecycle manually:
+
+```python
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+async def manual_connection():
+    # Create client with options
+    options = ClaudeAgentOptions(
+        system_prompt="You are a helpful coding assistant.",
+        model="claude-sonnet-4-5"
+    )
+    
+    client = ClaudeSDKClient(options=options)
+    
+    try:
+        # Connect explicitly
+        await client.connect()
+        
+        # Send queries
+        await client.query("Help me write a Python function")
+        
+        # Receive messages
+        async for message in client.receive_response():
+            print(message)
+    
+    finally:
+        # Always disconnect
+        await client.disconnect()
+
+asyncio.run(manual_connection())
+```
+
+## Receiving Messages
+
+There are two ways to receive messages:
+
+<Tabs>
+
+<Tab title="receive_response()">
+  Automatically stops after receiving a `ResultMessage`:
+  
+  ```python
+  async with ClaudeSDKClient() as client:
+      await client.query("What is Python?")
+      
+      # Receives until ResultMessage, then stops
+      async for msg in client.receive_response():
+          if isinstance(msg, AssistantMessage):
+              print(msg.content)
+          elif isinstance(msg, ResultMessage):
+              print(f"Cost: ${msg.total_cost_usd:.4f}")
+              # Automatically stops here
+  ```
+</Tab>
+
+<Tab title="receive_messages()">
+  Continuous stream - keeps receiving until disconnected:
+  
+  ```python
+  async with ClaudeSDKClient() as client:
+      # Start receiving in background
+      async def receive_all():
+          async for msg in client.receive_messages():
+              print(msg)
+              if isinstance(msg, ResultMessage):
+                  # Must manually break if desired
+                  break
+      
+      receive_task = asyncio.create_task(receive_all())
+      
+      # Send multiple queries
+      await client.query("Question 1")
+      await asyncio.sleep(2)
+      await client.query("Question 2")
+      
+      await receive_task
+  ```
+</Tab>
+
+</Tabs>
+
+## Concurrent Send and Receive
+
+Handle responses while sending new messages:
+
+```python
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient
+
+async def concurrent_example():
+    async with ClaudeSDKClient() as client:
+        # Background task to receive all messages
+        async def receive_messages():
+            async for message in client.receive_messages():
+                print(f"Received: {type(message).__name__}")
+        
+        # Start receiving in background
+        receive_task = asyncio.create_task(receive_messages())
+        
+        # Send multiple messages with delays
+        questions = [
+            "What is 2 + 2?",
+            "What is the square root of 144?",
+            "What is 10% of 80?"
+        ]
+        
+        for question in questions:
+            print(f"Sending: {question}")
+            await client.query(question)
+            await asyncio.sleep(3)  # Wait between messages
+        
+        # Wait for responses
+        await asyncio.sleep(2)
+        
+        # Clean up
+        receive_task.cancel()
+        try:
+            await receive_task
+        except asyncio.CancelledError:
+            pass
+
+asyncio.run(concurrent_example())
+```
+
+## Interrupting Execution
+
+Stop Claude mid-execution and change direction:
+
+<Warning>
+  **Important**: Interrupts only work when messages are being actively consumed. You must have a background task receiving messages for interrupts to process.
+</Warning>
+
+```python
+import asyncio
+import contextlib
+from claude_agent_sdk import ClaudeSDKClient
+
+async def interrupt_example():
+    async with ClaudeSDKClient() as client:
+        # Start a long-running task
+        print("User: Count from 1 to 100 slowly")
+        await client.query(
+            "Count from 1 to 100 slowly, with a brief pause between each number"
+        )
+        
+        # Create background task to consume messages
+        messages_received = []
+        
+        async def consume_messages():
+            async for message in client.receive_response():
+                messages_received.append(message)
+                # Display progress
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            print(f"Claude: {block.text[:30]}...")
+        
+        # Start consuming in background
+        consume_task = asyncio.create_task(consume_messages())
+        
+        # Wait 2 seconds then interrupt
+        await asyncio.sleep(2)
+        print("\n[Sending interrupt...]")
+        await client.interrupt()
+        
+        # Wait for interrupt to process
+        await consume_task
+        
+        # Send new instruction
+        print("\nUser: Never mind, just tell me a joke")
+        await client.query("Never mind, just tell me a quick joke")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+
+asyncio.run(interrupt_example())
+```
+
+## Dynamic Configuration
+
+Change settings during a conversation:
+
+<Tabs>
+
+<Tab title="Permission Mode">
+  ```python
+  async with ClaudeSDKClient() as client:
+      # Start with default permissions
+      await client.query("Analyze this codebase")
+      async for msg in client.receive_response():
+          print(msg)
+      
+      # Switch to auto-accept edits
+      await client.set_permission_mode('acceptEdits')
+      await client.query("Now implement the fixes")
+      async for msg in client.receive_response():
+          print(msg)
+  ```
+</Tab>
+
+<Tab title="Model Selection">
+  ```python
+  async with ClaudeSDKClient() as client:
+      # Start with default model
+      await client.query("Help me understand this problem")
+      async for msg in client.receive_response():
+          print(msg)
+      
+      # Switch to a different model
+      await client.set_model('claude-opus-4-20250514')
+      await client.query("Now implement the solution")
+      async for msg in client.receive_response():
+          print(msg)
+  ```
+</Tab>
+
+</Tabs>
+
+## Async Iterable Prompts
+
+Stream multiple messages dynamically:
+
+```python
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient
+
+async def async_iterable_example():
+    async def create_message_stream():
+        """Generate a stream of messages."""
+        yield {
+            "type": "user",
+            "message": {"role": "user", "content": "Hello! I have questions."},
+            "parent_tool_use_id": None,
+            "session_id": "qa-session"
+        }
+        
+        yield {
+            "type": "user",
+            "message": {"role": "user", "content": "What's the capital of Japan?"},
+            "parent_tool_use_id": None,
+            "session_id": "qa-session"
+        }
+        
+        yield {
+            "type": "user",
+            "message": {"role": "user", "content": "What's 15% of 200?"},
+            "parent_tool_use_id": None,
+            "session_id": "qa-session"
+        }
+    
+    async with ClaudeSDKClient() as client:
+        # Send the message stream
+        await client.query(create_message_stream())
+        
+        # Receive three responses
+        for _ in range(3):
+            async for msg in client.receive_response():
+                if isinstance(msg, AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, TextBlock):
+                            print(f"Claude: {block.text}")
+
+asyncio.run(async_iterable_example())
+```
+
+## Working with Server Info
+
+Get information about the Claude Code server:
+
+```python
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient
+
+async def server_info_example():
+    async with ClaudeSDKClient() as client:
+        # Get server initialization info
+        server_info = await client.get_server_info()
+        
+        if server_info:
+            print(f"Available commands: {len(server_info.get('commands', []))}")
+            print(f"Output style: {server_info.get('output_style', 'unknown')}")
+            
+            # Show available output styles
+            styles = server_info.get('available_output_styles', [])
+            if styles:
+                print(f"Available output styles: {', '.join(styles)}")
+
+asyncio.run(server_info_example())
+```
+
+## Error Handling
+
+Handle connection errors and timeouts gracefully:
+
+```python
+import asyncio
+from claude_agent_sdk import ClaudeSDKClient, CLIConnectionError
+
+async def error_handling_example():
+    client = ClaudeSDKClient()
+    
+    try:
+        await client.connect()
+        
+        # Send a long-running query
+        await client.query("Run a bash sleep command for 60 seconds")
+        
+        # Try to receive with timeout
+        try:
+            async with asyncio.timeout(10.0):
+                async for msg in client.receive_response():
+                    print(msg)
+        
+        except asyncio.TimeoutError:
+            print("Response timeout - handling gracefully")
+            # Can interrupt or disconnect as needed
+    
+    except CLIConnectionError as e:
+        print(f"Connection error: {e}")
+    
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    
+    finally:
+        # Always disconnect
+        await client.disconnect()
+
+asyncio.run(error_handling_example())
+```
+
+## Complete Chat Application Example
+
+Here's a complete example of a simple chat application:
+
+```python
+import asyncio
+from claude_agent_sdk import (
+    ClaudeSDKClient,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock
+)
+
+async def chat_app():
+    """Simple interactive chat application."""
+    
+    options = ClaudeAgentOptions(
+        system_prompt="You are a helpful and friendly assistant.",
+        model="claude-sonnet-4-5"
+    )
+    
+    async with ClaudeSDKClient(options=options) as client:
+        print("Chat started! Type 'quit' to exit.\n")
+        
+        while True:
+            # Get user input (in real app, use async input)
+            user_input = input("You: ")
+            
+            if user_input.lower() == 'quit':
+                print("Goodbye!")
+                break
+            
+            # Send to Claude
+            await client.query(user_input)
+            
+            # Receive and display response
+            async for msg in client.receive_response():
+                if isinstance(msg, AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, TextBlock):
+                            print(f"Claude: {block.text}")
+                
+                elif isinstance(msg, ResultMessage):
+                    # Show cost for transparency
+                    if msg.total_cost_usd:
+                        print(f"[Cost: ${msg.total_cost_usd:.6f}]")
+            
+            print()  # Blank line between exchanges
+
+if __name__ == "__main__":
+    asyncio.run(chat_app())
+```
+
+## Best Practices
+
+<AccordionGroup>
+
+<Accordion title="Use Context Managers">
+  Always use `async with` when possible to ensure proper cleanup:
+  
+  ```python
+  async with ClaudeSDKClient() as client:
+      # Client automatically connects and disconnects
+      pass
+  ```
+</Accordion>
+
+<Accordion title="Handle Interrupts Properly">
+  When using interrupts, always have a background task consuming messages:
+  
+  ```python
+  consume_task = asyncio.create_task(client.receive_response())
+  await client.interrupt()
+  await consume_task  # Wait for interrupt to process
+  ```
+</Accordion>
+
+<Accordion title="Choose the Right Receive Method">
+  - Use `receive_response()` for single query-response cycles
+  - Use `receive_messages()` for continuous streaming
+</Accordion>
+
+<Accordion title="Clean Up Background Tasks">
+  Always cancel and await background tasks to avoid warnings:
+  
+  ```python
+  task.cancel()
+  try:
+      await task
+  except asyncio.CancelledError:
+      pass
+  ```
+</Accordion>
+
+</AccordionGroup>
+
+## Caveats
+
+<Warning>
+  **Async Runtime Context**: As of v0.0.20, you cannot use a `ClaudeSDKClient` instance across different async runtime contexts (e.g., different trio nurseries or asyncio task groups). The client maintains a persistent task group that remains active from `connect()` until `disconnect()`. Complete all operations within the same async context where the client was connected.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Custom Tools" icon="wrench" href="/guides/custom-tools">
+  Create custom tools with the @tool decorator
+</Card>
+
+<Card title="Hooks" icon="webhook" href="/guides/hooks">
+  Implement hooks to customize agent behavior
+</Card>
+
+<Card title="Permissions" icon="shield" href="/guides/permissions">
+  Learn about tool permission control
+</Card>
+
+<Card title="Examples" icon="code" href="/examples/streaming-mode">
+  More streaming mode examples
+</Card>
+
+</CardGroup>

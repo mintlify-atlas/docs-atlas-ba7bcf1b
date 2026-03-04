@@ -1,0 +1,345 @@
+---
+title: "Message Types"
+description: "Message types for Claude Agent SDK conversations"
+---
+
+## Overview
+
+The Claude Agent SDK uses strongly-typed message classes to represent conversation turns, system events, and streaming updates.
+
+```python
+Message = UserMessage | AssistantMessage | SystemMessage | ResultMessage | StreamEvent
+```
+
+## UserMessage
+
+Represents a message from the user.
+
+```python
+@dataclass
+class UserMessage:
+    content: str | list[ContentBlock]
+    uuid: str | None = None
+    parent_tool_use_id: str | None = None
+    tool_use_result: dict[str, Any] | None = None
+```
+
+<ParamField path="content" type="str | list[ContentBlock]" required>
+  Message content as a string or list of content blocks.
+</ParamField>
+
+<ParamField path="uuid" type="str | None">
+  Unique message identifier.
+</ParamField>
+
+<ParamField path="parent_tool_use_id" type="str | None">
+  ID of the parent tool use if this is a tool result message.
+</ParamField>
+
+<ParamField path="tool_use_result" type="dict[str, Any] | None">
+  Tool result data if this message contains tool output.
+</ParamField>
+
+### Example
+
+```python
+message = UserMessage(
+    content="What files are in the current directory?",
+    uuid="msg-123"
+)
+
+await client.send_message(message)
+```
+
+## AssistantMessage
+
+Represents a response from Claude.
+
+```python
+@dataclass
+class AssistantMessage:
+    content: list[ContentBlock]
+    model: str
+    parent_tool_use_id: str | None = None
+    error: AssistantMessageError | None = None
+```
+
+<ParamField path="content" type="list[ContentBlock]" required>
+  List of content blocks (text, thinking, tool use, etc.).
+  
+  See [Content Blocks](/api/types/content-blocks) for details.
+</ParamField>
+
+<ParamField path="model" type="str" required>
+  Model that generated the response (e.g., `"claude-sonnet-4-20250514"`).
+</ParamField>
+
+<ParamField path="parent_tool_use_id" type="str | None">
+  ID of the parent tool use if this is from a sub-agent.
+</ParamField>
+
+<ParamField path="error" type="AssistantMessageError | None">
+  Error type if the message failed.
+  
+  - `"authentication_failed"`
+  - `"billing_error"`
+  - `"rate_limit"`
+  - `"invalid_request"`
+  - `"server_error"`
+  - `"unknown"`
+</ParamField>
+
+### Example
+
+```python
+async for message in client:
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, TextBlock):
+                print(block.text)
+            elif isinstance(block, ToolUseBlock):
+                print(f"Using tool: {block.name}")
+```
+
+## SystemMessage
+
+Represents system-level events and metadata.
+
+```python
+@dataclass
+class SystemMessage:
+    subtype: str
+    data: dict[str, Any]
+```
+
+<ParamField path="subtype" type="str" required>
+  System message type (e.g., `"task_started"`, `"task_progress"`, `"task_notification"`).
+</ParamField>
+
+<ParamField path="data" type="dict[str, Any]" required>
+  Message-specific data payload.
+</ParamField>
+
+### Task Messages
+
+The SDK provides specialized subclasses for task-related system messages:
+
+<Expandable title="TaskStartedMessage">
+  ```python
+  @dataclass
+  class TaskStartedMessage(SystemMessage):
+      task_id: str
+      description: str
+      uuid: str
+      session_id: str
+      tool_use_id: str | None = None
+      task_type: str | None = None
+  ```
+  
+  Emitted when a task (sub-agent) starts.
+</Expandable>
+
+<Expandable title="TaskProgressMessage">
+  ```python
+  @dataclass
+  class TaskProgressMessage(SystemMessage):
+      task_id: str
+      description: str
+      usage: TaskUsage
+      uuid: str
+      session_id: str
+      tool_use_id: str | None = None
+      last_tool_name: str | None = None
+  ```
+  
+  Emitted during task execution with usage statistics.
+  
+  `TaskUsage` contains:
+  - `total_tokens: int`
+  - `tool_uses: int`
+  - `duration_ms: int`
+</Expandable>
+
+<Expandable title="TaskNotificationMessage">
+  ```python
+  @dataclass
+  class TaskNotificationMessage(SystemMessage):
+      task_id: str
+      status: TaskNotificationStatus  # "completed" | "failed" | "stopped"
+      output_file: str
+      summary: str
+      uuid: str
+      session_id: str
+      tool_use_id: str | None = None
+      usage: TaskUsage | None = None
+  ```
+  
+  Emitted when a task completes, fails, or is stopped.
+</Expandable>
+
+### Example
+
+```python
+async for message in client:
+    if isinstance(message, TaskStartedMessage):
+        print(f"Task started: {message.description}")
+    elif isinstance(message, TaskProgressMessage):
+        print(f"Progress: {message.usage['total_tokens']} tokens used")
+    elif isinstance(message, TaskNotificationMessage):
+        print(f"Task {message.status}: {message.summary}")
+```
+
+## ResultMessage
+
+Final result message with cost and usage information.
+
+```python
+@dataclass
+class ResultMessage:
+    subtype: str
+    duration_ms: int
+    duration_api_ms: int
+    is_error: bool
+    num_turns: int
+    session_id: str
+    stop_reason: str | None = None
+    total_cost_usd: float | None = None
+    usage: dict[str, Any] | None = None
+    result: str | None = None
+    structured_output: Any = None
+```
+
+<ParamField path="subtype" type="str" required>
+  Result type (typically `"result"`).
+</ParamField>
+
+<ParamField path="duration_ms" type="int" required>
+  Total session duration in milliseconds.
+</ParamField>
+
+<ParamField path="duration_api_ms" type="int" required>
+  API call duration in milliseconds.
+</ParamField>
+
+<ParamField path="is_error" type="bool" required>
+  Whether the session ended with an error.
+</ParamField>
+
+<ParamField path="num_turns" type="int" required>
+  Number of conversation turns.
+</ParamField>
+
+<ParamField path="session_id" type="str" required>
+  Session identifier.
+</ParamField>
+
+<ParamField path="stop_reason" type="str | None">
+  Reason for stopping (e.g., `"max_turns"`, `"end_turn"`).
+</ParamField>
+
+<ParamField path="total_cost_usd" type="float | None">
+  Total cost in USD.
+</ParamField>
+
+<ParamField path="usage" type="dict[str, Any] | None">
+  Token usage statistics.
+</ParamField>
+
+<ParamField path="result" type="str | None">
+  Final result text.
+</ParamField>
+
+<ParamField path="structured_output" type="Any">
+  Structured output if `output_format` was specified in options.
+</ParamField>
+
+### Example
+
+```python
+result = await query("Analyze this codebase", options)
+
+if isinstance(result, ResultMessage):
+    print(f"Completed in {result.duration_ms}ms")
+    print(f"Used {result.num_turns} turns")
+    print(f"Cost: ${result.total_cost_usd:.4f}")
+    print(f"Result: {result.result}")
+```
+
+## StreamEvent
+
+Partial message update during streaming (requires `include_partial_messages=True`).
+
+```python
+@dataclass
+class StreamEvent:
+    uuid: str
+    session_id: str
+    event: dict[str, Any]  # Raw Anthropic API stream event
+    parent_tool_use_id: str | None = None
+```
+
+<ParamField path="uuid" type="str" required>
+  Message UUID being updated.
+</ParamField>
+
+<ParamField path="session_id" type="str" required>
+  Session identifier.
+</ParamField>
+
+<ParamField path="event" type="dict[str, Any]" required>
+  Raw Anthropic API stream event data.
+</ParamField>
+
+<ParamField path="parent_tool_use_id" type="str | None">
+  Parent tool use ID if from a sub-agent.
+</ParamField>
+
+### Example
+
+```python
+options = ClaudeAgentOptions(include_partial_messages=True)
+client = ClaudeSDKClient(options)
+
+async for message in client:
+    if isinstance(message, StreamEvent):
+        # Handle partial updates
+        if message.event.get("type") == "content_block_delta":
+            delta = message.event.get("delta", {})
+            if "text" in delta:
+                print(delta["text"], end="", flush=True)
+```
+
+## Session History Types
+
+Types for reading historical session data:
+
+### SDKSessionInfo
+
+```python
+@dataclass
+class SDKSessionInfo:
+    session_id: str
+    summary: str
+    last_modified: int
+    file_size: int
+    custom_title: str | None = None
+    first_prompt: str | None = None
+    git_branch: str | None = None
+    cwd: str | None = None
+```
+
+Returned by `list_sessions()` with session metadata.
+
+### SessionMessage
+
+```python
+@dataclass
+class SessionMessage:
+    type: Literal["user", "assistant"]
+    uuid: str
+    session_id: str
+    message: Any  # Raw Anthropic API message dict
+    parent_tool_use_id: None = None
+```
+
+Returned by `get_session_messages()` for reading conversation history.

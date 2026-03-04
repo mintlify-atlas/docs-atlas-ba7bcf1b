@@ -1,0 +1,168 @@
+---
+title: 'query()'
+description: 'Query Claude Code for one-shot or unidirectional streaming interactions'
+---
+
+## Overview
+
+The `query()` function is ideal for simple, stateless queries where you don't need bidirectional communication or conversation management. For interactive, stateful conversations, use `ClaudeSDKClient` instead.
+
+### Key Features
+
+- **Unidirectional**: Send all messages upfront, receive all responses
+- **Stateless**: Each query is independent, no conversation state
+- **Simple**: Fire-and-forget style, no connection management
+- **No interrupts**: Cannot interrupt or send follow-up messages
+
+### When to Use query()
+
+- Simple one-off questions ("What is 2+2?")
+- Batch processing of independent prompts
+- Code generation or analysis tasks
+- Automated scripts and CI/CD pipelines
+- When you know all inputs upfront
+
+### When to Use ClaudeSDKClient
+
+- Interactive conversations with follow-ups
+- Chat applications or REPL-like interfaces
+- When you need to send messages based on responses
+- When you need interrupt capabilities
+- Long-running sessions with state
+
+## Function Signature
+
+```python
+async def query(
+    *,
+    prompt: str | AsyncIterable[dict[str, Any]],
+    options: ClaudeAgentOptions | None = None,
+    transport: Transport | None = None,
+) -> AsyncIterator[Message]
+```
+
+## Parameters
+
+<ParamField path="prompt" type="str | AsyncIterable[dict[str, Any]]" required>
+  The prompt to send to Claude. Can be:
+  - **String**: For single-shot queries
+  - **AsyncIterable[dict]**: For streaming mode with continuous interaction
+  
+  In streaming mode, each dict should have the structure:
+  ```python
+  {
+      "type": "user",
+      "message": {"role": "user", "content": "..."},
+      "parent_tool_use_id": None,
+      "session_id": "..."
+  }
+  ```
+</ParamField>
+
+<ParamField path="options" type="ClaudeAgentOptions | None" default="None">
+  Optional configuration (defaults to `ClaudeAgentOptions()` if None).
+  
+  Key options:
+  - **permission_mode**: Control tool execution
+    - `'default'`: CLI prompts for dangerous tools
+    - `'acceptEdits'`: Auto-accept file edits
+    - `'bypassPermissions'`: Allow all tools (use with caution)
+  - **cwd**: Working directory for the session
+  - **system_prompt**: Custom system prompt
+  - **mcp_servers**: MCP server configurations
+</ParamField>
+
+<ParamField path="transport" type="Transport | None" default="None">
+  Optional transport implementation. If provided, this will be used instead of the default transport selection based on options. The transport will be automatically configured with the prompt and options.
+</ParamField>
+
+## Returns
+
+<ResponseField name="AsyncIterator[Message]" type="AsyncIterator[Message]">
+  An async iterator that yields messages from the conversation. Messages can include:
+  - `AssistantMessage`: Text and tool use responses from Claude
+  - `UserMessage`: User messages (when using replay-user-messages)
+  - `SystemMessage`: System notifications and status updates
+  - `ResultMessage`: Final result with metadata (cost, tokens, etc.)
+</ResponseField>
+
+## Examples
+
+### Simple Query
+
+```python
+from claude_agent_sdk import query
+
+# One-off question
+async for message in query(prompt="What is the capital of France?"):
+    print(message)
+```
+
+### Query with Options
+
+```python
+from claude_agent_sdk import query, ClaudeAgentOptions
+
+# Code generation with specific settings
+async for message in query(
+    prompt="Create a Python web server",
+    options=ClaudeAgentOptions(
+        system_prompt="You are an expert Python developer",
+        cwd="/home/user/project",
+        permission_mode="acceptEdits"
+    )
+):
+    print(message)
+```
+
+### Streaming Mode
+
+```python
+from claude_agent_sdk import query
+
+async def prompts():
+    yield {"type": "user", "message": {"role": "user", "content": "Hello"}}
+    yield {"type": "user", "message": {"role": "user", "content": "How are you?"}}
+
+# All prompts are sent, then all responses received
+async for message in query(prompt=prompts()):
+    print(message)
+```
+
+### Custom Transport
+
+```python
+from claude_agent_sdk import query, Transport
+
+class MyCustomTransport(Transport):
+    # Implement custom transport logic
+    pass
+
+transport = MyCustomTransport()
+async for message in query(
+    prompt="Hello",
+    transport=transport
+):
+    print(message)
+```
+
+### Processing Messages
+
+```python
+from claude_agent_sdk import query, AssistantMessage, TextBlock, ResultMessage
+
+async for message in query(prompt="Explain Python decorators"):
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, TextBlock):
+                print(f"Claude: {block.text}")
+    elif isinstance(message, ResultMessage):
+        print(f"Cost: ${message.total_cost_usd:.4f}")
+        print(f"Tokens: {message.usage.input_tokens}/{message.usage.output_tokens}")
+```
+
+## Related
+
+- [ClaudeSDKClient](/api/claude-sdk-client) - For interactive, stateful conversations
+- [ClaudeAgentOptions](/api/types/claude-agent-options) - Configuration options
+- [Message Types](/api/types/messages) - Available message types

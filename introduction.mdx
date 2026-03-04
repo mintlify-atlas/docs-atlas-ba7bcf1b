@@ -1,0 +1,239 @@
+---
+title: Claude Agent SDK for Python
+description: Build AI agents with Claude Code featuring bidirectional conversations, custom tools, and MCP server support
+mode: custom
+---
+
+<div className="relative overflow-hidden bg-gradient-to-br from-[#D97757] to-[#B85C3F] dark:from-[#B85C3F] dark:to-[#8B4530] py-20">
+  <div className="absolute inset-0 bg-black/20"></div>
+  <div className="relative max-w-7xl mx-auto px-6 lg:px-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
+          Claude Agent SDK for Python
+        </h1>
+        <p className="text-lg sm:text-xl text-white/90 mb-8 max-w-2xl">
+          Build powerful AI agents with Claude Code. Create bidirectional conversations, add custom tools, and integrate MCP servers—all with a simple Python SDK.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a
+            href="/quickstart"
+            className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-[#B85C3F] font-semibold hover:bg-gray-100 transition-colors"
+          >
+            Get Started
+          </a>
+          <a
+            href="/api/query"
+            className="inline-flex items-center px-6 py-3 rounded-lg border border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors"
+          >
+            API Reference
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Quick Start
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get up and running with Claude Agent SDK in minutes
+  </p>
+
+  <Steps>
+    <Step title="Install the package">
+      Install the Claude Agent SDK using pip:
+
+      ```bash
+      pip install claude-agent-sdk
+      ```
+
+      The SDK requires Python 3.10 or higher and automatically bundles the Claude Code CLI—no separate installation needed.
+    </Step>
+
+    <Step title="Write your first query">
+      Create a simple Python script to query Claude:
+
+      ```python
+      import anyio
+      from claude_agent_sdk import query
+
+      async def main():
+          async for message in query(prompt="What is 2 + 2?"):
+              print(message)
+
+      anyio.run(main)
+      ```
+
+      The `query()` function provides a simple way to send one-shot requests to Claude.
+    </Step>
+
+    <Step title="Run your script">
+      Execute your script to see Claude's response:
+
+      ```bash
+      python your_script.py
+      ```
+
+      <Accordion title="Example output">
+        You'll receive a stream of messages including Claude's response:
+        
+        ```
+        AssistantMessage(content=[TextBlock(text='2 + 2 equals 4')])
+        ResultMessage(stop_reason='end_turn', total_cost_usd=0.0012)
+        ```
+      </Accordion>
+    </Step>
+
+    <Step title="Explore advanced features">
+      Try interactive conversations with `ClaudeSDKClient`, create custom tools with `@tool`, or implement hooks for fine-grained control.
+
+      Check out the [interactive conversations guide](/guides/interactive-conversations) or browse the [examples](/examples/simple-queries).
+    </Step>
+  </Steps>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Explore by topic
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Jump to the content that matters most to you
+  </p>
+
+  <CardGroup cols={2}>
+    <Card title="Core Concepts" icon="book-open" href="/core-concepts/query-vs-client">
+      Understand the difference between query() and ClaudeSDKClient, message types, and configuration options
+    </Card>
+    <Card title="Custom Tools" icon="wrench" href="/guides/custom-tools">
+      Create in-process MCP servers with Python functions that Claude can invoke
+    </Card>
+    <Card title="Hooks System" icon="hook" href="/guides/hooks">
+      Customize agent behavior at specific points in the conversation loop
+    </Card>
+    <Card title="Interactive Conversations" icon="messages" href="/guides/interactive-conversations">
+      Build bidirectional chat interfaces with ClaudeSDKClient
+    </Card>
+    <Card title="Permission Controls" icon="shield" href="/guides/permissions">
+      Manage tool permissions and implement safety controls
+    </Card>
+    <Card title="Examples" icon="code" href="/examples/simple-queries">
+      Real-world code examples demonstrating common patterns
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+    Key features
+  </h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Everything you need to build production-ready AI agents
+  </p>
+
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="p-6 rounded-lg border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#D97757] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Simple Query Function
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Use the <code>query()</code> function for one-shot interactions. Perfect for automation scripts and batch processing.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-lg border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#D97757] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Bidirectional Conversations
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        ClaudeSDKClient enables interactive, stateful conversations with full control over message flow and interrupts.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-lg border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#D97757] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        In-Process MCP Servers
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Create custom tools as Python functions that run in-process. No subprocess management, better performance, easier debugging.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-lg border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#D97757] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Permission Controls
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Fine-grained control over tool execution with permission modes, custom callbacks, and hooks.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-lg border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#D97757] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Session Management
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Track conversation history, checkpoint file states, and rewind to previous points in time.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-lg border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#D97757] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Type Safety
+      </h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Comprehensive type definitions for all message types, content blocks, and configuration options.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl border border-gray-200 dark:border-[#27272a] bg-gradient-to-br from-gray-50 to-white dark:from-[#1a1d27] dark:to-[#0f1117] p-8 sm:p-12">
+    <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 dark:text-white mb-4">
+      Ready to build AI agents?
+    </h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 mb-6 max-w-2xl">
+      Install the Claude Agent SDK and start building powerful AI applications with Claude Code in minutes.
+    </p>
+    <a
+      href="/quickstart"
+      className="inline-flex items-center px-6 py-3 rounded-lg bg-[#D97757] text-white font-semibold hover:bg-[#B85C3F] transition-colors"
+    >
+      Get Started
+    </a>
+  </div>
+</div>

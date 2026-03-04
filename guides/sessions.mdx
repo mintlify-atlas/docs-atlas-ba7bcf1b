@@ -1,0 +1,463 @@
+---
+title: 'Session Management'
+description: 'Manage sessions, continue conversations, and track file changes with checkpointing'
+---
+
+The Claude Agent SDK provides powerful session management features including conversation continuity, session listing, message history, and file checkpointing.
+
+## Understanding Sessions
+
+Each interaction with Claude creates a **session**. Sessions store:
+- Conversation history (user and assistant messages)
+- Tool usage and results
+- File changes and checkpoints (when enabled)
+- Cost and usage information
+- Session metadata (title, branch, working directory)
+
+Sessions are stored in `~/.claude/projects/<project-dir>/` as JSONL files.
+
+## Continuing Conversations
+
+You can continue previous conversations using the `continue_conversation` option or by resuming a specific session.
+
+### Continue Last Conversation
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+
+# First interaction
+options = ClaudeAgentOptions(
+    cwd="/path/to/project"
+)
+
+async for message in query(
+    prompt="Create a hello.py file",
+    options=options
+):
+    print(message)
+
+# Continue the conversation
+options.continue_conversation = True
+
+async for message in query(
+    prompt="Now add error handling to hello.py",
+    options=options
+):
+    print(message)
+```
+
+### Resume a Specific Session
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+
+# Resume by session ID
+options = ClaudeAgentOptions(
+    resume="550e8400-e29b-41d4-a716-446655440000",  # Session UUID
+    cwd="/path/to/project"
+)
+
+async for message in query(
+    prompt="Continue working on the previous task",
+    options=options
+):
+    print(message)
+```
+
+## Session Forking
+
+Create a new session starting from a previous session's state:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+
+options = ClaudeAgentOptions(
+    resume="550e8400-e29b-41d4-a716-446655440000",
+    fork_session=True  # Create new session ID
+)
+
+async for message in query(
+    prompt="Try a different approach to the problem",
+    options=options
+):
+    print(message)
+```
+
+<Note>
+Session forking creates a new session with a new ID while preserving the conversation history from the resumed session. This is useful for exploring different approaches without modifying the original session.
+</Note>
+
+## Listing Sessions
+
+List sessions for a project or across all projects:
+
+```python
+from claude_agent_sdk import list_sessions
+
+# List sessions for a specific project
+sessions = list_sessions(directory="/path/to/project")
+
+for session in sessions:
+    print(f"Session ID: {session.session_id}")
+    print(f"Summary: {session.summary}")
+    print(f"Last Modified: {session.last_modified}")
+    print(f"Branch: {session.git_branch}")
+    print(f"First Prompt: {session.first_prompt}")
+    print()
+```
+
+### List All Sessions
+
+```python
+# List sessions across all projects
+all_sessions = list_sessions()
+
+for session in all_sessions:
+    print(f"{session.session_id}: {session.summary}")
+```
+
+### Limit and Filter Sessions
+
+```python
+# Get most recent 10 sessions
+recent_sessions = list_sessions(
+    directory="/path/to/project",
+    limit=10
+)
+
+# Disable git worktree scanning
+sessions = list_sessions(
+    directory="/path/to/project",
+    include_worktrees=False
+)
+```
+
+### Session Metadata
+
+`SDKSessionInfo` provides:
+
+```python
+from claude_agent_sdk import list_sessions
+
+sessions = list_sessions(directory="/path/to/project")
+session = sessions[0]
+
+print(f"Session ID: {session.session_id}")          # UUID
+print(f"Summary: {session.summary}")                # Display title
+print(f"Custom Title: {session.custom_title}")      # User-set title
+print(f"First Prompt: {session.first_prompt}")      # First user message
+print(f"Last Modified: {session.last_modified}")    # Timestamp (ms)
+print(f"File Size: {session.file_size}")            # Bytes
+print(f"Git Branch: {session.git_branch}")          # Current branch
+print(f"Working Dir: {session.cwd}")                # Session directory
+```
+
+## Reading Session Messages
+
+Retrieve conversation history from a session:
+
+```python
+from claude_agent_sdk import get_session_messages
+
+# Get all messages from a session
+messages = get_session_messages(
+    session_id="550e8400-e29b-41d4-a716-446655440000",
+    directory="/path/to/project"
+)
+
+for msg in messages:
+    print(f"Type: {msg.type}")              # "user" or "assistant"
+    print(f"UUID: {msg.uuid}")              # Message ID
+    print(f"Session: {msg.session_id}")     # Session ID
+    print(f"Message: {msg.message}")        # Message content
+    print()
+```
+
+### Pagination
+
+```python
+# Get messages with pagination
+page = get_session_messages(
+    session_id="550e8400-e29b-41d4-a716-446655440000",
+    directory="/path/to/project",
+    limit=10,
+    offset=20
+)
+```
+
+### Search All Projects
+
+```python
+# Search for session without specifying directory
+messages = get_session_messages(
+    session_id="550e8400-e29b-41d4-a716-446655440000"
+)
+```
+
+## File Checkpointing
+
+File checkpointing tracks changes to files during a session, allowing you to rewind files to their state at any point in the conversation.
+
+### Enable File Checkpointing
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+
+options = ClaudeAgentOptions(
+    enable_file_checkpointing=True,
+    cwd="/path/to/project"
+)
+
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("Create and modify several files")
+    async for msg in client.receive_response():
+        print(msg)
+```
+
+### Rewind Files
+
+Restore files to their state at a specific user message:
+
+```python
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    get_session_messages
+)
+
+options = ClaudeAgentOptions(
+    enable_file_checkpointing=True,
+    resume="550e8400-e29b-41d4-a716-446655440000",
+    cwd="/path/to/project"
+)
+
+async with ClaudeSDKClient(options=options) as client:
+    # Get messages to find a checkpoint
+    messages = get_session_messages(
+        session_id="550e8400-e29b-41d4-a716-446655440000",
+        directory="/path/to/project"
+    )
+    
+    # Find a user message UUID to rewind to
+    user_messages = [m for m in messages if m.type == "user"]
+    checkpoint_uuid = user_messages[2].uuid  # Rewind to 3rd user message
+    
+    # Rewind files to that point
+    await client.rewind_files(checkpoint_uuid)
+    
+    # Continue from that point
+    await client.query("Try a different approach")
+    async for msg in client.receive_response():
+        print(msg)
+```
+
+<Warning>
+File checkpointing only tracks files that are modified through Claude's tools (Write, Edit, MultiEdit). Manual changes outside of the session are not tracked.
+</Warning>
+
+### Use Case: Exploring Alternatives
+
+```python
+import asyncio
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    get_session_messages,
+    AssistantMessage,
+    TextBlock
+)
+
+async def explore_alternatives():
+    """Try different implementations and rewind if needed."""
+    options = ClaudeAgentOptions(
+        enable_file_checkpointing=True,
+        cwd="/path/to/project"
+    )
+    
+    async with ClaudeSDKClient(options=options) as client:
+        # Initial implementation
+        await client.query("Implement a sorting algorithm in sort.py")
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+        
+        # Get checkpoint before optimization
+        messages = get_session_messages(
+            session_id=client.session_id,
+            directory="/path/to/project"
+        )
+        checkpoint = [m for m in messages if m.type == "user"][-1].uuid
+        
+        # Try optimization
+        await client.query("Optimize for performance")
+        async for msg in client.receive_response():
+            pass
+        
+        # Not satisfied? Rewind and try different approach
+        await client.rewind_files(checkpoint)
+        await client.query("Optimize for readability instead")
+        async for msg in client.receive_response():
+            pass
+
+if __name__ == "__main__":
+    asyncio.run(explore_alternatives())
+```
+
+## Session Isolation
+
+Control which settings sources are loaded:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+# Only load user and project settings (skip local)
+options = ClaudeAgentOptions(
+    setting_sources=["user", "project"],
+    cwd="/path/to/project"
+)
+
+# Completely isolated session (no settings)
+options = ClaudeAgentOptions(
+    setting_sources=[],
+    cwd="/path/to/project"
+)
+```
+
+Setting sources:
+- `user` - User-level settings (~/.claude/)
+- `project` - Project-level settings (.claude/)
+- `local` - Local settings (Git-ignored configurations)
+
+## Working Directory Management
+
+Sessions are organized by working directory:
+
+```python
+from pathlib import Path
+from claude_agent_sdk import ClaudeAgentOptions
+
+# String path
+options = ClaudeAgentOptions(
+    cwd="/path/to/project"
+)
+
+# Path object
+options = ClaudeAgentOptions(
+    cwd=Path("/path/to/project")
+)
+
+# Relative path (resolved to absolute)
+options = ClaudeAgentOptions(
+    cwd="../other-project"
+)
+```
+
+<Note>
+Sessions are stored in `~/.claude/projects/<sanitized-cwd>/`. The working directory path is sanitized to create a valid directory name.
+</Note>
+
+## Complete Session Management Example
+
+```python
+import asyncio
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    list_sessions,
+    get_session_messages,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock
+)
+
+async def session_workflow():
+    project_dir = "/path/to/project"
+    
+    # 1. List existing sessions
+    print("=== Existing Sessions ===")
+    sessions = list_sessions(directory=project_dir, limit=5)
+    for session in sessions:
+        print(f"{session.session_id}: {session.summary}")
+    
+    # 2. Start new session with checkpointing
+    print("\n=== Starting New Session ===")
+    options = ClaudeAgentOptions(
+        enable_file_checkpointing=True,
+        cwd=project_dir
+    )
+    
+    session_id = None
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query("Create a Python project structure")
+        async for msg in client.receive_response():
+            if isinstance(msg, ResultMessage):
+                session_id = msg.session_id
+                print(f"Session ID: {session_id}")
+    
+    # 3. Continue the session
+    print("\n=== Continuing Session ===")
+    options.resume = session_id
+    
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query("Add tests to the project")
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+    
+    # 4. Read session history
+    print("\n=== Session History ===")
+    messages = get_session_messages(
+        session_id=session_id,
+        directory=project_dir
+    )
+    print(f"Total messages: {len(messages)}")
+    for msg in messages[:3]:  # First 3 messages
+        print(f"{msg.type}: {str(msg.message)[:100]}...")
+    
+    # 5. Fork session for experimentation
+    print("\n=== Forking Session ===")
+    options.fork_session = True
+    
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query("Try an alternative implementation")
+        async for msg in client.receive_response():
+            if isinstance(msg, ResultMessage):
+                print(f"New forked session: {msg.session_id}")
+
+if __name__ == "__main__":
+    asyncio.run(session_workflow())
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use descriptive first prompts">
+    The first prompt becomes the session summary. Make it clear and descriptive for easier session identification.
+  </Accordion>
+
+  <Accordion title="Enable checkpointing for exploratory work">
+    When experimenting with different approaches, enable file checkpointing to easily rewind changes.
+  </Accordion>
+
+  <Accordion title="Fork sessions for what-if scenarios">
+    Use session forking to explore alternatives without modifying the original conversation.
+  </Accordion>
+
+  <Accordion title="Clean up old sessions periodically">
+    Sessions accumulate in ~/.claude/projects/. Periodically remove old sessions to save disk space.
+  </Accordion>
+
+  <Accordion title="Use consistent working directories">
+    Keep working directories organized by project for easier session management and discovery.
+  </Accordion>
+</AccordionGroup>
+
+## Related Resources
+
+- [API Reference: list_sessions](/api/claude-sdk-client)
+- [API Reference: get_session_messages](/api/claude-sdk-client)
+- [API Reference: ClaudeSDKClient.rewind_files](/api/claude-sdk-client)

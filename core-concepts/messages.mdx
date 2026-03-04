@@ -1,0 +1,523 @@
+---
+title: "Messages and Content Blocks"
+description: "Understanding message types and content blocks in the Claude Agent SDK"
+---
+
+The Claude Agent SDK uses a structured message system to represent conversations. Messages contain content blocks that represent different types of information.
+
+## Message Types
+
+All messages are part of the `Message` union type:
+
+```python
+Message = UserMessage | AssistantMessage | SystemMessage | ResultMessage | StreamEvent
+```
+
+### UserMessage
+
+Represents a message from the user to Claude.
+
+```python
+@dataclass
+class UserMessage:
+    """User message."""
+    
+    content: str | list[ContentBlock]
+    uuid: str | None = None
+    parent_tool_use_id: str | None = None
+    tool_use_result: dict[str, Any] | None = None
+```
+
+<ParamField path="content" type="str | list[ContentBlock]" required>
+  The message content. Can be a simple string or a list of content blocks.
+</ParamField>
+
+<ParamField path="uuid" type="str | None">
+  Unique identifier for the message. Only present when `extra_args={"replay-user-messages": None}` is set in options.
+</ParamField>
+
+<ParamField path="parent_tool_use_id" type="str | None">
+  ID of the parent tool use if this is a follow-up message within a tool execution context.
+</ParamField>
+
+<ParamField path="tool_use_result" type="dict[str, Any] | None">
+  Result data if this message is responding to a tool use.
+</ParamField>
+
+#### Example
+
+```python
+from claude_agent_sdk import ClaudeSDKClient
+
+async with ClaudeSDKClient() as client:
+    await client.query("What is the capital of France?")
+    
+    async for msg in client.receive_messages():
+        if isinstance(msg, UserMessage):
+            print(f"User said: {msg.content}")
+            if msg.uuid:
+                print(f"Message ID: {msg.uuid}")
+```
+
+### AssistantMessage
+
+Represents a message from Claude (the assistant).
+
+```python
+@dataclass
+class AssistantMessage:
+    """Assistant message with content blocks."""
+    
+    content: list[ContentBlock]
+    model: str
+    parent_tool_use_id: str | None = None
+    error: AssistantMessageError | None = None
+```
+
+<ParamField path="content" type="list[ContentBlock]" required>
+  List of content blocks (text, thinking, tool use, etc.).
+</ParamField>
+
+<ParamField path="model" type="str" required>
+  The model used to generate this message (e.g., "claude-sonnet-4-5").
+</ParamField>
+
+<ParamField path="parent_tool_use_id" type="str | None">
+  ID of the parent tool use if this message is part of a tool execution.
+</ParamField>
+
+<ParamField path="error" type="AssistantMessageError | None">
+  Error type if the message generation failed. Possible values:
+  - `"authentication_failed"`
+  - `"billing_error"`
+  - `"rate_limit"`
+  - `"invalid_request"`
+  - `"server_error"`
+  - `"unknown"`
+</ParamField>
+
+#### Example
+
+```python
+async with ClaudeSDKClient() as client:
+    await client.query("Explain async/await")
+    
+    async for msg in client.receive_response():
+        if isinstance(msg, AssistantMessage):
+            print(f"Model: {msg.model}")
+            for block in msg.content:
+                if isinstance(block, TextBlock):
+                    print(f"Text: {block.text}")
+                elif isinstance(block, ToolUseBlock):
+                    print(f"Using tool: {block.name}")
+```
+
+### SystemMessage
+
+Represents system-level messages with metadata about the conversation.
+
+```python
+@dataclass
+class SystemMessage:
+    """System message with metadata."""
+    
+    subtype: str
+    data: dict[str, Any]
+```
+
+<ParamField path="subtype" type="str" required>
+  The type of system message. Common subtypes:
+  - `"task_started"` - A task has started
+  - `"task_progress"` - Task progress update
+  - `"task_notification"` - Task completion/failure/stopped
+  - `"mcp_status"` - MCP server status
+  - `"tool_execution"` - Tool execution details
+</ParamField>
+
+<ParamField path="data" type="dict[str, Any]" required>
+  Additional data specific to the message subtype.
+</ParamField>
+
+#### Specialized System Messages
+
+The SDK provides typed subclasses for common system message subtypes:
+
+##### TaskStartedMessage
+
+```python
+@dataclass
+class TaskStartedMessage(SystemMessage):
+    """System message emitted when a task starts."""
+    
+    task_id: str
+    description: str
+    uuid: str
+    session_id: str
+    tool_use_id: str | None = None
+    task_type: str | None = None
+```
+
+##### TaskProgressMessage
+
+```python
+@dataclass
+class TaskProgressMessage(SystemMessage):
+    """System message emitted while a task is in progress."""
+    
+    task_id: str
+    description: str
+    usage: TaskUsage
+    uuid: str
+    session_id: str
+    tool_use_id: str | None = None
+    last_tool_name: str | None = None
+```
+
+##### TaskNotificationMessage
+
+```python
+@dataclass
+class TaskNotificationMessage(SystemMessage):
+    """System message emitted when a task completes, fails, or is stopped."""
+    
+    task_id: str
+    status: TaskNotificationStatus  # "completed" | "failed" | "stopped"
+    output_file: str
+    summary: str
+    uuid: str
+    session_id: str
+    tool_use_id: str | None = None
+    usage: TaskUsage | None = None
+```
+
+#### Example
+
+```python
+async with ClaudeSDKClient() as client:
+    await client.query("Start a long-running task")
+    
+    async for msg in client.receive_messages():
+        if isinstance(msg, TaskStartedMessage):
+            print(f"Task started: {msg.description}")
+        elif isinstance(msg, TaskProgressMessage):
+            print(f"Progress: {msg.usage['total_tokens']} tokens used")
+        elif isinstance(msg, TaskNotificationMessage):
+            print(f"Task {msg.status}: {msg.summary}")
+```
+
+### ResultMessage
+
+Represents the final result of a conversation with cost and usage information.
+
+```python
+@dataclass
+class ResultMessage:
+    """Result message with cost and usage information."""
+    
+    subtype: str
+    duration_ms: int
+    duration_api_ms: int
+    is_error: bool
+    num_turns: int
+    session_id: str
+    stop_reason: str | None = None
+    total_cost_usd: float | None = None
+    usage: dict[str, Any] | None = None
+    result: str | None = None
+    structured_output: Any = None
+```
+
+<ParamField path="duration_ms" type="int" required>
+  Total duration in milliseconds.
+</ParamField>
+
+<ParamField path="duration_api_ms" type="int" required>
+  API call duration in milliseconds.
+</ParamField>
+
+<ParamField path="is_error" type="bool" required>
+  Whether the conversation ended with an error.
+</ParamField>
+
+<ParamField path="num_turns" type="int" required>
+  Number of conversation turns.
+</ParamField>
+
+<ParamField path="session_id" type="str" required>
+  Session identifier.
+</ParamField>
+
+<ParamField path="stop_reason" type="str | None">
+  Reason the conversation stopped (e.g., "end_turn", "max_tokens").
+</ParamField>
+
+<ParamField path="total_cost_usd" type="float | None">
+  Total cost in USD.
+</ParamField>
+
+<ParamField path="usage" type="dict[str, Any] | None">
+  Token usage statistics.
+</ParamField>
+
+<ParamField path="structured_output" type="Any">
+  Structured output if `output_format` was specified in options.
+</ParamField>
+
+#### Example
+
+```python
+async with ClaudeSDKClient() as client:
+    await client.query("What is 2+2?")
+    
+    async for msg in client.receive_response():
+        if isinstance(msg, ResultMessage):
+            print(f"Cost: ${msg.total_cost_usd:.4f}")
+            print(f"Duration: {msg.duration_ms}ms")
+            print(f"Turns: {msg.num_turns}")
+            print(f"Tokens: {msg.usage}")
+```
+
+### StreamEvent
+
+Represents partial message updates during streaming (when `include_partial_messages=True`).
+
+```python
+@dataclass
+class StreamEvent:
+    """Stream event for partial message updates during streaming."""
+    
+    uuid: str
+    session_id: str
+    event: dict[str, Any]  # The raw Anthropic API stream event
+    parent_tool_use_id: str | None = None
+```
+
+<ParamField path="event" type="dict[str, Any]" required>
+  Raw Anthropic API stream event (e.g., `content_block_start`, `content_block_delta`, etc.).
+</ParamField>
+
+## Content Blocks
+
+Content blocks represent different types of content within messages.
+
+```python
+ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
+```
+
+### TextBlock
+
+Represents text content from Claude.
+
+```python
+@dataclass
+class TextBlock:
+    """Text content block."""
+    
+    text: str
+```
+
+<ParamField path="text" type="str" required>
+  The text content.
+</ParamField>
+
+#### Example
+
+```python
+for block in assistant_message.content:
+    if isinstance(block, TextBlock):
+        print(block.text)
+```
+
+### ThinkingBlock
+
+Represents Claude's extended thinking process (when thinking is enabled).
+
+```python
+@dataclass
+class ThinkingBlock:
+    """Thinking content block."""
+    
+    thinking: str
+    signature: str
+```
+
+<ParamField path="thinking" type="str" required>
+  Claude's internal reasoning and thought process.
+</ParamField>
+
+<ParamField path="signature" type="str" required>
+  Signature for the thinking block.
+</ParamField>
+
+#### Example
+
+```python
+options = ClaudeAgentOptions(
+    thinking={"type": "adaptive"}
+)
+
+async with ClaudeSDKClient(options) as client:
+    await client.query("Solve this complex problem")
+    
+    async for msg in client.receive_response():
+        if isinstance(msg, AssistantMessage):
+            for block in msg.content:
+                if isinstance(block, ThinkingBlock):
+                    print(f"Claude's thinking: {block.thinking}")
+```
+
+### ToolUseBlock
+
+Represents Claude's intent to use a tool.
+
+```python
+@dataclass
+class ToolUseBlock:
+    """Tool use content block."""
+    
+    id: str
+    name: str
+    input: dict[str, Any]
+```
+
+<ParamField path="id" type="str" required>
+  Unique identifier for this tool use.
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  Name of the tool being used (e.g., "Bash", "Read", "Write").
+</ParamField>
+
+<ParamField path="input" type="dict[str, Any]" required>
+  Input parameters for the tool.
+</ParamField>
+
+#### Example
+
+```python
+async for msg in client.receive_messages():
+    if isinstance(msg, AssistantMessage):
+        for block in msg.content:
+            if isinstance(block, ToolUseBlock):
+                print(f"Using tool: {block.name}")
+                print(f"Tool ID: {block.id}")
+                print(f"Input: {block.input}")
+```
+
+### ToolResultBlock
+
+Represents the result of a tool execution.
+
+```python
+@dataclass
+class ToolResultBlock:
+    """Tool result content block."""
+    
+    tool_use_id: str
+    content: str | list[dict[str, Any]] | None = None
+    is_error: bool | None = None
+```
+
+<ParamField path="tool_use_id" type="str" required>
+  ID of the tool use this result corresponds to.
+</ParamField>
+
+<ParamField path="content" type="str | list[dict[str, Any]] | None">
+  The result content from the tool execution.
+</ParamField>
+
+<ParamField path="is_error" type="bool | None">
+  Whether the tool execution resulted in an error.
+</ParamField>
+
+#### Example
+
+```python
+async for msg in client.receive_messages():
+    if isinstance(msg, AssistantMessage):
+        for block in msg.content:
+            if isinstance(block, ToolResultBlock):
+                print(f"Tool result for {block.tool_use_id}")
+                if block.is_error:
+                    print(f"Error: {block.content}")
+                else:
+                    print(f"Success: {block.content}")
+```
+
+## Complete Example
+
+```python
+from claude_agent_sdk import (
+    ClaudeSDKClient,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    UserMessage,
+    SystemMessage,
+    ResultMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+)
+
+async def process_conversation():
+    options = ClaudeAgentOptions(
+        thinking={"type": "adaptive"},
+        extra_args={"replay-user-messages": None}
+    )
+    
+    async with ClaudeSDKClient(options) as client:
+        await client.query("Help me analyze this codebase")
+        
+        async for msg in client.receive_messages():
+            # Handle user messages
+            if isinstance(msg, UserMessage):
+                print(f"User [{msg.uuid}]: {msg.content}")
+            
+            # Handle assistant messages
+            elif isinstance(msg, AssistantMessage):
+                print(f"Assistant (model: {msg.model}):")
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"  Text: {block.text}")
+                    elif isinstance(block, ThinkingBlock):
+                        print(f"  Thinking: {block.thinking[:100]}...")
+                    elif isinstance(block, ToolUseBlock):
+                        print(f"  Using tool: {block.name}")
+                        print(f"    Input: {block.input}")
+                    elif isinstance(block, ToolResultBlock):
+                        status = "error" if block.is_error else "success"
+                        print(f"  Tool result ({status}): {block.content}")
+            
+            # Handle system messages
+            elif isinstance(msg, SystemMessage):
+                print(f"System [{msg.subtype}]: {msg.data}")
+            
+            # Handle result
+            elif isinstance(msg, ResultMessage):
+                print(f"\nConversation complete!")
+                print(f"  Duration: {msg.duration_ms}ms")
+                print(f"  Turns: {msg.num_turns}")
+                print(f"  Cost: ${msg.total_cost_usd:.4f}")
+                print(f"  Stop reason: {msg.stop_reason}")
+                break
+```
+
+## Type Checking
+
+Use `isinstance()` to check message and content block types:
+
+```python
+if isinstance(msg, AssistantMessage):
+    for block in msg.content:
+        if isinstance(block, TextBlock):
+            # Handle text
+            pass
+        elif isinstance(block, ToolUseBlock):
+            # Handle tool use
+            pass
+```
+
+<Note>
+`receive_response()` is a convenience method that automatically stops after receiving a `ResultMessage`. Use `receive_messages()` for full control over message processing.
+</Note>

@@ -1,0 +1,309 @@
+---
+title: "ClaudeAgentOptions"
+description: "Configuration options for Claude Agent SDK queries and sessions"
+---
+
+## ClaudeAgentOptions
+
+Configuration dataclass for customizing Claude Agent SDK behavior. Used with both `query()` and `ClaudeSDKClient` to control models, tools, permissions, hooks, and more.
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    model="claude-sonnet-4-20250514",
+    tools=["Bash", "Read", "Write"],
+    permission_mode="default",
+    max_turns=10
+)
+```
+
+### Fields
+
+<ParamField path="tools" type="list[str] | ToolsPreset | None" default="None">
+  List of tool names to enable, or a preset configuration.
+  
+  Example: `["Bash", "Read", "Write"]` or `{"type": "preset", "preset": "claude_code"}`
+</ParamField>
+
+<ParamField path="allowed_tools" type="list[str]" default="[]">
+  Additional tools to allow beyond the default set.
+</ParamField>
+
+<ParamField path="disallowed_tools" type="list[str]" default="[]">
+  Tools to explicitly disallow.
+</ParamField>
+
+<ParamField path="system_prompt" type="str | SystemPromptPreset | None" default="None">
+  Custom system prompt or preset configuration.
+  
+  Example: `"You are a helpful coding assistant"` or `{"type": "preset", "preset": "claude_code", "append": "Additional instructions"}`
+</ParamField>
+
+<ParamField path="mcp_servers" type="dict[str, McpServerConfig] | str | Path" default="{}">
+  MCP server configurations. Can be a dictionary of server configs, or a path to a config file.
+  
+  See [MCP Types](/api/types/mcp-types) for configuration details.
+</ParamField>
+
+<ParamField path="permission_mode" type="PermissionMode | None" default="None">
+  Permission mode for tool usage.
+  
+  - `"default"` - Prompt for permission on potentially dangerous operations
+  - `"acceptEdits"` - Auto-approve file edits
+  - `"plan"` - Review agent's plan before execution
+  - `"bypassPermissions"` - Skip all permission checks (use with caution)
+</ParamField>
+
+<ParamField path="model" type="str | None" default="None">
+  Claude model to use (e.g., `"claude-sonnet-4-20250514"`, `"claude-opus-4-20250514"`).
+</ParamField>
+
+<ParamField path="fallback_model" type="str | None" default="None">
+  Fallback model if the primary model is unavailable.
+</ParamField>
+
+<ParamField path="betas" type="list[SdkBeta]" default="[]">
+  Beta features to enable. See [Anthropic API beta headers](https://docs.anthropic.com/en/api/beta-headers).
+  
+  Available: `["context-1m-2025-08-07"]`
+</ParamField>
+
+<ParamField path="max_turns" type="int | None" default="None">
+  Maximum number of conversation turns before stopping.
+</ParamField>
+
+<ParamField path="max_budget_usd" type="float | None" default="None">
+  Maximum budget in USD for the session.
+</ParamField>
+
+<ParamField path="continue_conversation" type="bool" default="False">
+  Whether to continue an existing conversation session.
+</ParamField>
+
+<ParamField path="resume" type="str | None" default="None">
+  Session ID to resume from.
+</ParamField>
+
+<ParamField path="fork_session" type="bool" default="False">
+  When true, resumed sessions will fork to a new session ID rather than continuing the previous session.
+</ParamField>
+
+<ParamField path="cwd" type="str | Path | None" default="None">
+  Working directory for the session.
+</ParamField>
+
+<ParamField path="cli_path" type="str | Path | None" default="None">
+  Custom path to the Claude Code CLI executable.
+</ParamField>
+
+<ParamField path="settings" type="str | None" default="None">
+  Path to settings file.
+</ParamField>
+
+<ParamField path="setting_sources" type="list[SettingSource] | None" default="None">
+  Setting sources to load: `["user", "project", "local"]`
+</ParamField>
+
+<ParamField path="add_dirs" type="list[str | Path]" default="[]">
+  Additional directories to add to the workspace context.
+</ParamField>
+
+<ParamField path="env" type="dict[str, str]" default="{}">
+  Environment variables for the CLI process.
+</ParamField>
+
+<ParamField path="extra_args" type="dict[str, str | None]" default="{}">
+  Arbitrary CLI flags to pass through.
+</ParamField>
+
+<ParamField path="can_use_tool" type="CanUseTool | None" default="None">
+  Callback function for tool permission requests.
+  
+  ```python
+  async def permission_callback(
+      tool_name: str,
+      input: dict[str, Any],
+      context: ToolPermissionContext
+  ) -> PermissionResult:
+      # Custom permission logic
+      return PermissionResultAllow()
+  ```
+</ParamField>
+
+<ParamField path="hooks" type="dict[HookEvent, list[HookMatcher]] | None" default="None">
+  Hook configurations for lifecycle events.
+  
+  See [Hook Types](/api/types/hooks) for details.
+</ParamField>
+
+<ParamField path="agents" type="dict[str, AgentDefinition] | None" default="None">
+  Custom agent definitions.
+  
+  ```python
+  agents={
+      "code-reviewer": AgentDefinition(
+          description="Reviews code for quality",
+          prompt="You are a code reviewer...",
+          tools=["Read"],
+          model="sonnet"
+      )
+  }
+  ```
+</ParamField>
+
+<ParamField path="user" type="str | None" default="None">
+  User identifier for the session.
+</ParamField>
+
+<ParamField path="include_partial_messages" type="bool" default="False">
+  Enable streaming of partial message updates via `StreamEvent` messages.
+</ParamField>
+
+<ParamField path="max_buffer_size" type="int | None" default="None">
+  Maximum bytes when buffering CLI stdout.
+</ParamField>
+
+<ParamField path="stderr" type="Callable[[str], None] | None" default="None">
+  Callback for stderr output from CLI.
+  
+  ```python
+  def handle_stderr(line: str):
+      print(f"CLI stderr: {line}")
+  
+  options = ClaudeAgentOptions(stderr=handle_stderr)
+  ```
+</ParamField>
+
+<ParamField path="permission_prompt_tool_name" type="str | None" default="None">
+  Tool name to use for permission prompts.
+</ParamField>
+
+<ParamField path="sandbox" type="SandboxSettings | None" default="None">
+  Sandbox configuration for bash command isolation.
+  
+  ```python
+  sandbox = {
+      "enabled": True,
+      "autoAllowBashIfSandboxed": True,
+      "excludedCommands": ["docker"],
+      "network": {
+          "allowUnixSockets": ["/var/run/docker.sock"]
+      }
+  }
+  ```
+  
+  <Expandable title="SandboxSettings fields">
+    <ParamField path="enabled" type="bool">
+      Enable bash sandboxing (macOS/Linux only).
+    </ParamField>
+    
+    <ParamField path="autoAllowBashIfSandboxed" type="bool">
+      Auto-approve bash commands when sandboxed.
+    </ParamField>
+    
+    <ParamField path="excludedCommands" type="list[str]">
+      Commands that run outside the sandbox (e.g., `["git", "docker"]`).
+    </ParamField>
+    
+    <ParamField path="allowUnsandboxedCommands" type="bool">
+      Allow commands to bypass sandbox. When False, all commands must run sandboxed.
+    </ParamField>
+    
+    <ParamField path="network" type="SandboxNetworkConfig">
+      Network configuration.
+      
+      - `allowUnixSockets`: Unix socket paths accessible in sandbox
+      - `allowAllUnixSockets`: Allow all Unix sockets (less secure)
+      - `allowLocalBinding`: Allow binding to localhost ports (macOS only)
+      - `httpProxyPort`: HTTP proxy port
+      - `socksProxyPort`: SOCKS5 proxy port
+    </ParamField>
+    
+    <ParamField path="ignoreViolations" type="SandboxIgnoreViolations">
+      Violations to ignore.
+      
+      - `file`: File paths to ignore
+      - `network`: Network hosts to ignore
+    </ParamField>
+    
+    <ParamField path="enableWeakerNestedSandbox" type="bool">
+      Enable weaker sandbox for unprivileged Docker (Linux only). Reduces security.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="plugins" type="list[SdkPluginConfig]" default="[]">
+  Plugin configurations.
+  
+  ```python
+  plugins=[{"type": "local", "path": "/path/to/plugin"}]
+  ```
+</ParamField>
+
+<ParamField path="thinking" type="ThinkingConfig | None" default="None">
+  Extended thinking configuration.
+  
+  - `{"type": "adaptive"}` - Adaptive thinking budget
+  - `{"type": "enabled", "budget_tokens": 10000}` - Fixed token budget
+  - `{"type": "disabled"}` - Disable extended thinking
+</ParamField>
+
+<ParamField path="max_thinking_tokens" type="int | None" default="None">
+  **Deprecated:** Use `thinking` instead. Maximum tokens for thinking blocks.
+</ParamField>
+
+<ParamField path="effort" type="Literal['low', 'medium', 'high', 'max'] | None" default="None">
+  Effort level for thinking depth.
+</ParamField>
+
+<ParamField path="output_format" type="dict[str, Any] | None" default="None">
+  Output format for structured outputs (matches Messages API structure).
+  
+  ```python
+  output_format={
+      "type": "json_schema",
+      "schema": {
+          "type": "object",
+          "properties": {
+              "result": {"type": "string"}
+          }
+      }
+  }
+  ```
+</ParamField>
+
+<ParamField path="enable_file_checkpointing" type="bool" default="False">
+  Enable file checkpointing to track file changes. When enabled, files can be rewound to their state at any user message using `ClaudeSDKClient.rewind_files()`.
+</ParamField>
+
+## Related Types
+
+- `PermissionMode` - `"default" | "acceptEdits" | "plan" | "bypassPermissions"`
+- `SdkBeta` - `"context-1m-2025-08-07"`
+- `SettingSource` - `"user" | "project" | "local"`
+- `ToolsPreset` - `{"type": "preset", "preset": "claude_code"}`
+- `SystemPromptPreset` - `{"type": "preset", "preset": "claude_code", "append": "..."}`
+
+## Example Usage
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+options = ClaudeAgentOptions(
+    model="claude-sonnet-4-20250514",
+    tools=["Bash", "Read", "Write", "Edit"],
+    permission_mode="acceptEdits",
+    max_turns=20,
+    max_budget_usd=1.0,
+    cwd="/path/to/project",
+    sandbox={
+        "enabled": True,
+        "autoAllowBashIfSandboxed": True
+    },
+    thinking={"type": "adaptive"},
+    effort="high"
+)
+
+client = ClaudeSDKClient(options)
+```

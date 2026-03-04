@@ -1,0 +1,533 @@
+---
+title: "Error Handling"
+description: "Understanding error types and handling patterns in the Claude Agent SDK"
+---
+
+The Claude Agent SDK provides a structured error hierarchy for handling different types of failures that can occur during interactions with Claude Code.
+
+## Error Hierarchy
+
+All SDK errors inherit from the base `ClaudeSDKError` exception:
+
+```python
+from claude_agent_sdk import (
+    ClaudeSDKError,
+    CLIConnectionError,
+    CLINotFoundError,
+    ProcessError,
+    CLIJSONDecodeError,
+    MessageParseError,
+)
+```
+
+### ClaudeSDKError
+
+Base exception for all Claude SDK errors.
+
+```python
+class ClaudeSDKError(Exception):
+    """Base exception for all Claude SDK errors."""
+```
+
+Use this to catch any SDK-related error:
+
+```python
+try:
+    async for message in query(prompt="Hello"):
+        print(message)
+except ClaudeSDKError as e:
+    print(f"SDK error occurred: {e}")
+```
+
+### CLIConnectionError
+
+Raised when unable to connect to Claude Code.
+
+```python
+class CLIConnectionError(ClaudeSDKError):
+    """Raised when unable to connect to Claude Code."""
+```
+
+**Common Causes:**
+- Claude Code CLI is not running
+- Network connectivity issues
+- Invalid transport configuration
+- Permission denied when starting CLI process
+
+**Example:**
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, CLIConnectionError
+
+try:
+    async with ClaudeSDKClient() as client:
+        await client.query("Hello")
+except CLIConnectionError as e:
+    print(f"Failed to connect to Claude Code: {e}")
+    print("Make sure Claude Code is installed and accessible")
+```
+
+### CLINotFoundError
+
+Raised when Claude Code is not found or not installed.
+
+```python
+class CLINotFoundError(CLIConnectionError):
+    """Raised when Claude Code is not found or not installed."""
+    
+    def __init__(
+        self, 
+        message: str = "Claude Code not found", 
+        cli_path: str | None = None
+    )
+```
+
+**Common Causes:**
+- Claude Code CLI is not installed
+- CLI is not in PATH
+- Invalid `cli_path` specified in options
+- Insufficient permissions to execute the CLI
+
+**Example:**
+
+```python
+from claude_agent_sdk import query, ClaudeAgentOptions, CLINotFoundError
+
+try:
+    async for message in query(
+        prompt="Hello",
+        options=ClaudeAgentOptions(cli_path="/custom/path/to/claude")
+    ):
+        print(message)
+except CLINotFoundError as e:
+    print(f"Claude Code CLI not found: {e}")
+    print("Please install Claude Code from https://claude.ai/download")
+```
+
+### ProcessError
+
+Raised when the CLI process fails.
+
+```python
+class ProcessError(ClaudeSDKError):
+    """Raised when the CLI process fails."""
+    
+    def __init__(
+        self, 
+        message: str, 
+        exit_code: int | None = None, 
+        stderr: str | None = None
+    )
+```
+
+**Attributes:**
+- `exit_code` (int | None): The process exit code
+- `stderr` (str | None): Error output from the process
+
+**Common Causes:**
+- CLI crashed or was terminated
+- Invalid CLI arguments
+- Resource exhaustion (memory, disk space)
+- Permission issues accessing files or directories
+
+**Example:**
+
+```python
+from claude_agent_sdk import query, ProcessError
+
+try:
+    async for message in query(prompt="Hello"):
+        print(message)
+except ProcessError as e:
+    print(f"CLI process failed: {e}")
+    if e.exit_code:
+        print(f"Exit code: {e.exit_code}")
+    if e.stderr:
+        print(f"Error output: {e.stderr}")
+```
+
+### CLIJSONDecodeError
+
+Raised when unable to decode JSON from CLI output.
+
+```python
+class CLIJSONDecodeError(ClaudeSDKError):
+    """Raised when unable to decode JSON from CLI output."""
+    
+    def __init__(self, line: str, original_error: Exception)
+```
+
+**Attributes:**
+- `line` (str): The line that failed to parse
+- `original_error` (Exception): The original JSON decode error
+
+**Common Causes:**
+- Corrupted CLI output
+- CLI version mismatch
+- Incomplete or truncated messages
+- CLI outputting non-JSON data
+
+**Example:**
+
+```python
+from claude_agent_sdk import query, CLIJSONDecodeError
+
+try:
+    async for message in query(prompt="Hello"):
+        print(message)
+except CLIJSONDecodeError as e:
+    print(f"Failed to decode CLI output: {e}")
+    print(f"Problematic line: {e.line[:100]}...")
+    print(f"Original error: {e.original_error}")
+```
+
+### MessageParseError
+
+Raised when unable to parse a message from CLI output.
+
+```python
+class MessageParseError(ClaudeSDKError):
+    """Raised when unable to parse a message from CLI output."""
+    
+    def __init__(self, message: str, data: dict[str, Any] | None = None)
+```
+
+**Attributes:**
+- `data` (dict[str, Any] | None): The data that failed to parse
+
+**Common Causes:**
+- Unexpected message format
+- Missing required fields
+- Type mismatches in message data
+- SDK version incompatible with CLI version
+
+**Example:**
+
+```python
+from claude_agent_sdk import query, MessageParseError
+
+try:
+    async for message in query(prompt="Hello"):
+        print(message)
+except MessageParseError as e:
+    print(f"Failed to parse message: {e}")
+    if e.data:
+        print(f"Message data: {e.data}")
+```
+
+## Error Handling Patterns
+
+### Basic Error Handling
+
+Catch all SDK errors with a single handler:
+
+```python
+from claude_agent_sdk import query, ClaudeSDKError
+
+async def safe_query(prompt: str):
+    try:
+        async for message in query(prompt=prompt):
+            print(message)
+    except ClaudeSDKError as e:
+        print(f"Error: {e}")
+        return None
+```
+
+### Granular Error Handling
+
+Handle different error types differently:
+
+```python
+from claude_agent_sdk import (
+    query,
+    CLINotFoundError,
+    CLIConnectionError,
+    ProcessError,
+    ClaudeSDKError,
+)
+
+async def robust_query(prompt: str):
+    try:
+        async for message in query(prompt=prompt):
+            print(message)
+    
+    except CLINotFoundError as e:
+        print("Claude Code is not installed.")
+        print("Install from: https://claude.ai/download")
+        return "CLI_NOT_FOUND"
+    
+    except CLIConnectionError as e:
+        print(f"Cannot connect to Claude Code: {e}")
+        print("Make sure Claude Code is running")
+        return "CONNECTION_ERROR"
+    
+    except ProcessError as e:
+        print(f"CLI process failed: {e}")
+        if e.exit_code == 1:
+            print("Authentication may have failed")
+        elif e.exit_code == 137:
+            print("Process was killed (possibly OOM)")
+        return "PROCESS_ERROR"
+    
+    except ClaudeSDKError as e:
+        print(f"Unexpected SDK error: {e}")
+        return "UNKNOWN_ERROR"
+```
+
+### Retry Logic
+
+Implement retry logic for transient failures:
+
+```python
+import asyncio
+from claude_agent_sdk import query, CLIConnectionError, ProcessError
+
+async def query_with_retry(prompt: str, max_retries: int = 3):
+    """Query with exponential backoff retry."""
+    for attempt in range(max_retries):
+        try:
+            async for message in query(prompt=prompt):
+                yield message
+            return  # Success
+        
+        except (CLIConnectionError, ProcessError) as e:
+            if attempt == max_retries - 1:
+                raise  # Last attempt, re-raise
+            
+            wait_time = 2 ** attempt  # Exponential backoff
+            print(f"Attempt {attempt + 1} failed: {e}")
+            print(f"Retrying in {wait_time} seconds...")
+            await asyncio.sleep(wait_time)
+```
+
+### Context Manager Error Handling
+
+Handle errors in ClaudeSDKClient with context managers:
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, CLIConnectionError
+
+async def safe_interactive_session():
+    try:
+        async with ClaudeSDKClient() as client:
+            await client.query("Hello")
+            
+            async for msg in client.receive_response():
+                print(msg)
+    
+    except CLIConnectionError as e:
+        print(f"Connection failed: {e}")
+    
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    
+    finally:
+        print("Session cleanup complete")
+```
+
+### Logging Errors
+
+Integrate with Python's logging system:
+
+```python
+import logging
+from claude_agent_sdk import query, ClaudeSDKError, ProcessError
+
+logger = logging.getLogger(__name__)
+
+async def query_with_logging(prompt: str):
+    try:
+        logger.info(f"Starting query: {prompt}")
+        
+        async for message in query(prompt=prompt):
+            logger.debug(f"Received message: {type(message).__name__}")
+            yield message
+        
+        logger.info("Query completed successfully")
+    
+    except ProcessError as e:
+        logger.error(
+            f"Process error occurred",
+            extra={
+                "exit_code": e.exit_code,
+                "stderr": e.stderr,
+            },
+            exc_info=True
+        )
+        raise
+    
+    except ClaudeSDKError as e:
+        logger.error(f"SDK error: {e}", exc_info=True)
+        raise
+```
+
+### Graceful Degradation
+
+Provide fallback behavior when errors occur:
+
+```python
+from claude_agent_sdk import query, ClaudeSDKError
+
+async def query_with_fallback(prompt: str, fallback_response: str):
+    """Query with fallback response on error."""
+    try:
+        messages = []
+        async for message in query(prompt=prompt):
+            messages.append(message)
+        return messages
+    
+    except ClaudeSDKError as e:
+        print(f"Query failed: {e}")
+        print(f"Returning fallback response")
+        return fallback_response
+
+# Usage
+result = await query_with_fallback(
+    prompt="Explain quantum computing",
+    fallback_response="Unable to generate response. Please try again later."
+)
+```
+
+## Assistant Message Errors
+
+In addition to exceptions, `AssistantMessage` objects can contain error information:
+
+```python
+from claude_agent_sdk import AssistantMessage
+
+async for msg in client.receive_messages():
+    if isinstance(msg, AssistantMessage) and msg.error:
+        print(f"Assistant error: {msg.error}")
+        
+        if msg.error == "authentication_failed":
+            print("Please check your API key")
+        elif msg.error == "rate_limit":
+            print("Rate limit exceeded, please wait")
+        elif msg.error == "billing_error":
+            print("Billing issue detected")
+        elif msg.error == "invalid_request":
+            print("Invalid request parameters")
+        elif msg.error == "server_error":
+            print("Server error, please retry")
+```
+
+**Error Types:**
+- `"authentication_failed"` - API authentication failed
+- `"billing_error"` - Billing or payment issue
+- `"rate_limit"` - Rate limit exceeded
+- `"invalid_request"` - Invalid request parameters
+- `"server_error"` - Server-side error
+- `"unknown"` - Unknown error
+
+## Complete Example
+
+```python
+import asyncio
+import logging
+from claude_agent_sdk import (
+    ClaudeSDKClient,
+    ClaudeAgentOptions,
+    ClaudeSDKError,
+    CLINotFoundError,
+    CLIConnectionError,
+    ProcessError,
+    AssistantMessage,
+    ResultMessage,
+)
+
+logger = logging.getLogger(__name__)
+
+async def robust_conversation(prompt: str, max_retries: int = 3):
+    """Robust conversation with comprehensive error handling."""
+    
+    for attempt in range(max_retries):
+        try:
+            options = ClaudeAgentOptions(
+                cwd="/home/user/project",
+                permission_mode="default",
+                max_budget_usd=0.50
+            )
+            
+            async with ClaudeSDKClient(options) as client:
+                logger.info(f"Starting conversation (attempt {attempt + 1})")
+                
+                await client.query(prompt)
+                
+                async for msg in client.receive_response():
+                    # Handle assistant errors
+                    if isinstance(msg, AssistantMessage) and msg.error:
+                        if msg.error == "rate_limit":
+                            logger.warning("Rate limit hit, waiting...")
+                            await asyncio.sleep(60)
+                            raise CLIConnectionError("Rate limit")
+                        else:
+                            logger.error(f"Assistant error: {msg.error}")
+                    
+                    # Handle result
+                    elif isinstance(msg, ResultMessage):
+                        if msg.is_error:
+                            logger.error(f"Conversation ended with error")
+                            return None
+                        else:
+                            logger.info(
+                                f"Success! Cost: ${msg.total_cost_usd:.4f}"
+                            )
+                            return msg
+                
+                return None
+        
+        except CLINotFoundError as e:
+            logger.error(f"CLI not found: {e}")
+            print("Please install Claude Code from https://claude.ai/download")
+            return None  # Don't retry
+        
+        except CLIConnectionError as e:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                logger.warning(
+                    f"Connection failed (attempt {attempt + 1}): {e}"
+                )
+                logger.info(f"Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"Connection failed after {max_retries} attempts")
+                raise
+        
+        except ProcessError as e:
+            logger.error(
+                f"Process error",
+                extra={"exit_code": e.exit_code, "stderr": e.stderr}
+            )
+            if e.exit_code == 137:  # OOM kill
+                logger.error("Process killed (likely out of memory)")
+                return None  # Don't retry
+            elif attempt < max_retries - 1:
+                await asyncio.sleep(2)
+            else:
+                raise
+        
+        except ClaudeSDKError as e:
+            logger.error(f"SDK error: {e}", exc_info=True)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+            else:
+                raise
+        
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}", exc_info=True)
+            raise
+    
+    return None
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(robust_conversation("Help me debug this code"))
+```
+
+<Note>
+Always handle SDK errors appropriately in production code. Use specific error types for granular handling and implement retry logic for transient failures.
+</Note>
+
+<Warning>
+When catching `ClaudeSDKError`, make sure to handle more specific error types first (like `CLINotFoundError`) before the base exception to avoid masking important error details.
+</Warning>

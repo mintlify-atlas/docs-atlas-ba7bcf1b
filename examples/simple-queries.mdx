@@ -1,0 +1,216 @@
+---
+title: "Simple Query Examples"
+description: "Learn how to use the query() function for simple, one-shot interactions with Claude"
+---
+
+The `query()` function provides a simple, one-shot way to interact with Claude. It's perfect for basic tasks and quick interactions.
+
+## Basic Example
+
+The simplest way to use the SDK is with a basic question:
+
+```python
+import anyio
+from claude_agent_sdk import (
+    AssistantMessage,
+    TextBlock,
+    query,
+)
+
+async def basic_example():
+    """Basic example - simple question."""
+    print("=== Basic Example ===")
+
+    async for message in query(prompt="What is 2 + 2?"):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+    print()
+
+if __name__ == "__main__":
+    anyio.run(basic_example)
+```
+
+## Using Custom Options
+
+You can customize Claude's behavior using `ClaudeAgentOptions`:
+
+```python
+import anyio
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    TextBlock,
+    query,
+)
+
+async def with_options_example():
+    """Example with custom options."""
+    print("=== With Options Example ===")
+
+    options = ClaudeAgentOptions(
+        system_prompt="You are a helpful assistant that explains things simply.",
+        max_turns=1,
+    )
+
+    async for message in query(
+        prompt="Explain what Python is in one sentence.", 
+        options=options
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+    print()
+
+if __name__ == "__main__":
+    anyio.run(with_options_example)
+```
+
+<Note>
+The `max_turns` option limits the number of conversation turns. Setting it to 1 ensures Claude responds only once.
+</Note>
+
+## Using Tools
+
+You can enable specific tools for Claude to use:
+
+```python
+import anyio
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    TextBlock,
+    query,
+)
+
+async def with_tools_example():
+    """Example using tools."""
+    print("=== With Tools Example ===")
+
+    options = ClaudeAgentOptions(
+        allowed_tools=["Read", "Write"],
+        system_prompt="You are a helpful file assistant.",
+    )
+
+    async for message in query(
+        prompt="Create a file called hello.txt with 'Hello, World!' in it",
+        options=options,
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+        elif isinstance(message, ResultMessage) and message.total_cost_usd > 0:
+            print(f"\nCost: ${message.total_cost_usd:.4f}")
+    print()
+
+if __name__ == "__main__":
+    anyio.run(with_tools_example)
+```
+
+## Complete Example
+
+Here's a complete example running all three patterns:
+
+<Accordion title="Full working example">
+```python
+#!/usr/bin/env python3
+"""Quick start example for Claude Code SDK."""
+
+import anyio
+
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    TextBlock,
+    query,
+)
+
+
+async def basic_example():
+    """Basic example - simple question."""
+    print("=== Basic Example ===")
+
+    async for message in query(prompt="What is 2 + 2?"):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+    print()
+
+
+async def with_options_example():
+    """Example with custom options."""
+    print("=== With Options Example ===")
+
+    options = ClaudeAgentOptions(
+        system_prompt="You are a helpful assistant that explains things simply.",
+        max_turns=1,
+    )
+
+    async for message in query(
+        prompt="Explain what Python is in one sentence.", options=options
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+    print()
+
+
+async def with_tools_example():
+    """Example using tools."""
+    print("=== With Tools Example ===")
+
+    options = ClaudeAgentOptions(
+        allowed_tools=["Read", "Write"],
+        system_prompt="You are a helpful file assistant.",
+    )
+
+    async for message in query(
+        prompt="Create a file called hello.txt with 'Hello, World!' in it",
+        options=options,
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+        elif isinstance(message, ResultMessage) and message.total_cost_usd > 0:
+            print(f"\nCost: ${message.total_cost_usd:.4f}")
+    print()
+
+
+async def main():
+    """Run all examples."""
+    await basic_example()
+    await with_options_example()
+    await with_tools_example()
+
+
+if __name__ == "__main__":
+    anyio.run(main)
+```
+</Accordion>
+
+## Key Takeaways
+
+- Use `query()` for simple, one-shot interactions
+- Iterate over the async generator to receive messages
+- Check message types using `isinstance()`
+- Configure behavior with `ClaudeAgentOptions`
+- Enable tools using the `allowed_tools` parameter
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Streaming Mode" icon="stream" href="/examples/streaming-mode">
+    Learn about interactive conversations with ClaudeSDKClient
+  </Card>
+  <Card title="Tool Permissions" icon="shield-check" href="/examples/tool-permissions">
+    Control which tools Claude can use
+  </Card>
+</CardGroup>

@@ -1,0 +1,297 @@
+---
+title: "query() vs ClaudeSDKClient"
+description: "Understanding when to use query() for one-shot queries versus ClaudeSDKClient for interactive conversations"
+---
+
+The Claude Agent SDK provides two main ways to interact with Claude: the `query()` function for simple one-shot queries and `ClaudeSDKClient` for interactive, stateful conversations.
+
+## Quick Comparison
+
+| Feature | `query()` | `ClaudeSDKClient` |
+|---------|-----------|-------------------|
+| Communication | Unidirectional | Bidirectional |
+| State | Stateless | Stateful |
+| Follow-ups | Not supported | Supported |
+| Interrupts | Not supported | Supported |
+| Connection Management | Automatic | Manual (context manager) |
+| Use Case | Simple automation | Interactive conversations |
+
+## query() Function
+
+The `query()` function is ideal for simple, stateless queries where you don't need bidirectional communication or conversation management.
+
+### Signature
+
+```python
+async def query(
+    *,
+    prompt: str | AsyncIterable[dict[str, Any]],
+    options: ClaudeAgentOptions | None = None,
+    transport: Transport | None = None,
+) -> AsyncIterator[Message]
+```
+
+### Key Characteristics
+
+<CardGroup cols={2}>
+  <Card title="Unidirectional" icon="arrow-right">
+    Send all messages upfront, receive all responses. No follow-up messages can be sent.
+  </Card>
+  <Card title="Stateless" icon="clock">
+    Each query is independent with no conversation state maintained between calls.
+  </Card>
+  <Card title="Simple" icon="bolt">
+    Fire-and-forget style with automatic connection management.
+  </Card>
+  <Card title="No Interrupts" icon="ban">
+    Cannot interrupt or send messages during execution.
+  </Card>
+</CardGroup>
+
+### When to Use query()
+
+<AccordionGroup>
+  <Accordion title="One-off Questions">
+    Perfect for simple questions where you know the entire input upfront.
+    
+    ```python
+    async for message in query(prompt="What is 2+2?"):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(block.text)
+    ```
+  </Accordion>
+
+  <Accordion title="Batch Processing">
+    Ideal for processing multiple independent prompts.
+    
+    ```python
+    prompts = ["Explain async/await", "What is a closure?", "Define recursion"]
+    
+    for prompt in prompts:
+        async for message in query(prompt=prompt):
+            # Process each response
+            pass
+    ```
+  </Accordion>
+
+  <Accordion title="CI/CD Pipelines">
+    Great for automated scripts where all inputs are known.
+    
+    ```python
+    async for message in query(
+        prompt="Review this pull request for security issues",
+        options=ClaudeAgentOptions(
+            cwd="/path/to/repo",
+            permission_mode="default"
+        )
+    ):
+        # Process review results
+        pass
+    ```
+  </Accordion>
+
+  <Accordion title="Code Generation">
+    Useful for one-shot code generation tasks.
+    
+    ```python
+    async for message in query(
+        prompt="Create a Python web server with FastAPI",
+        options=ClaudeAgentOptions(
+            system_prompt="You are an expert Python developer",
+            cwd="/home/user/project"
+        )
+    ):
+        # Process generated code
+        pass
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## ClaudeSDKClient
+
+The `ClaudeSDKClient` provides full control over the conversation flow with support for streaming, interrupts, and dynamic message sending.
+
+### Signature
+
+```python
+class ClaudeSDKClient:
+    def __init__(
+        self,
+        options: ClaudeAgentOptions | None = None,
+        transport: Transport | None = None,
+    )
+```
+
+### Key Characteristics
+
+<CardGroup cols={2}>
+  <Card title="Bidirectional" icon="arrows-left-right">
+    Send and receive messages at any time during the conversation.
+  </Card>
+  <Card title="Stateful" icon="database">
+    Maintains conversation context across multiple message exchanges.
+  </Card>
+  <Card title="Interactive" icon="comments">
+    Send follow-ups based on Claude's responses in real-time.
+  </Card>
+  <Card title="Control Flow" icon="sliders">
+    Support for interrupts, permission changes, and session management.
+  </Card>
+</CardGroup>
+
+### When to Use ClaudeSDKClient
+
+<AccordionGroup>
+  <Accordion title="Chat Interfaces">
+    Building conversational UIs or chat applications.
+    
+    ```python
+    async with ClaudeSDKClient() as client:
+        # Send initial query
+        await client.query("Help me debug this code")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                display_to_user(msg)
+        
+        # User can send follow-ups
+        await client.query("What about the edge case?")
+        async for msg in client.receive_response():
+            display_to_user(msg)
+    ```
+  </Accordion>
+
+  <Accordion title="Interactive Debugging">
+    When you need to react to Claude's responses and ask follow-up questions.
+    
+    ```python
+    async with ClaudeSDKClient() as client:
+        await client.query("Analyze this error")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                # Analyze response and ask follow-up
+                if "needs more context" in extract_text(msg):
+                    await client.query("Here's the stack trace...")
+                    break
+    ```
+  </Accordion>
+
+  <Accordion title="Multi-turn Conversations">
+    When you need to maintain context across multiple exchanges.
+    
+    ```python
+    async with ClaudeSDKClient() as client:
+        await client.query("Let's refactor this module")
+        async for msg in client.receive_response():
+            pass  # Process initial response
+        
+        await client.query("Now add error handling")
+        async for msg in client.receive_response():
+            pass  # Claude remembers the refactoring context
+    ```
+  </Accordion>
+
+  <Accordion title="Dynamic Control">
+    When you need to change settings or interrupt during execution.
+    
+    ```python
+    async with ClaudeSDKClient() as client:
+        await client.query("Review this codebase")
+        
+        # Start listening for messages
+        async for msg in client.receive_messages():
+            if user_approves():
+                # Switch permission mode dynamically
+                await client.set_permission_mode('acceptEdits')
+                await client.query("Implement the changes")
+            elif user_cancels():
+                # Interrupt the current operation
+                await client.interrupt()
+                break
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Complete Examples
+
+### Using query() for Code Generation
+
+```python
+from claude_agent_sdk import query, ClaudeAgentOptions
+
+async def generate_code():
+    """Generate a Python web server."""
+    async for message in query(
+        prompt="Create a FastAPI server with health check endpoint",
+        options=ClaudeAgentOptions(
+            system_prompt="You are an expert Python developer",
+            cwd="/home/user/project",
+            permission_mode="acceptEdits"
+        )
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(block.text)
+        elif isinstance(message, ResultMessage):
+            print(f"Cost: ${message.total_cost_usd:.4f}")
+```
+
+### Using ClaudeSDKClient for Interactive Chat
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+
+async def interactive_chat():
+    """Interactive debugging session."""
+    options = ClaudeAgentOptions(
+        cwd="/home/user/project",
+        permission_mode="default"
+    )
+    
+    async with ClaudeSDKClient(options) as client:
+        # Initial query
+        await client.query("Help me understand this error")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+        
+        # Follow-up based on response
+        await client.query("Can you show me how to fix it?")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                # User reviews the solution
+                if should_accept():
+                    await client.set_permission_mode('acceptEdits')
+                    await client.query("Please implement the fix")
+            elif isinstance(msg, ResultMessage):
+                print(f"Session complete. Cost: ${msg.total_cost_usd:.4f}")
+```
+
+<Note>
+**Important Limitation**: As of v0.0.20, `ClaudeSDKClient` instances cannot be used across different async runtime contexts (e.g., different trio nurseries or asyncio task groups). The client must complete all operations within the same async context where it was connected.
+</Note>
+
+## Decision Guide
+
+Use **query()** when:
+- You know all inputs upfront
+- No follow-up messages needed
+- Automating batch operations
+- Building CI/CD integrations
+- Simple one-off tasks
+
+Use **ClaudeSDKClient** when:
+- Building chat interfaces
+- Need interactive debugging
+- Require follow-up questions
+- Need to interrupt operations
+- Want to change settings mid-conversation
+- Building REPL-like tools

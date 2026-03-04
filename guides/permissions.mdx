@@ -1,0 +1,457 @@
+---
+title: 'Permission Management'
+description: 'Control tool permissions and manage security with permission modes and callbacks'
+---
+
+The Claude Agent SDK provides flexible permission management through **permission modes** and **tool permission callbacks**. These features let you control which tools Claude can use and validate tool inputs before execution.
+
+## Permission Modes
+
+Permission modes control how Claude Agent handles tool permission requests. There are four modes:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `default` | Prompt user for each tool use | Interactive development, security-critical operations |
+| `acceptEdits` | Auto-approve file edits (Read, Write, Edit) | Automated file manipulation workflows |
+| `plan` | Plan mode with limited permissions | Strategic planning without execution |
+| `bypassPermissions` | Auto-approve all tools | Testing, trusted environments |
+
+### Setting Permission Mode
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+
+options = ClaudeAgentOptions(
+    permission_mode="acceptEdits",
+    allowed_tools=["Read", "Write", "Edit"]
+)
+
+async for message in query(
+    prompt="Create a hello.py file",
+    options=options
+):
+    print(message)
+```
+
+### Permission Mode Examples
+
+<CodeGroup>
+```python Default Mode
+# User is prompted for each tool use
+options = ClaudeAgentOptions(
+    permission_mode="default"
+)
+```
+
+```python Accept Edits Mode
+# Auto-approve file operations
+options = ClaudeAgentOptions(
+    permission_mode="acceptEdits",
+    allowed_tools=["Read", "Write", "Edit", "MultiEdit"]
+)
+```
+
+```python Bypass Permissions Mode
+# Auto-approve all tools (use with caution)
+options = ClaudeAgentOptions(
+    permission_mode="bypassPermissions",
+    allowed_tools=["Bash", "Read", "Write"]
+)
+```
+</CodeGroup>
+
+<Warning>
+`bypassPermissions` mode auto-approves all tool usage. Only use this in trusted environments or for testing purposes.
+</Warning>
+
+## Tool Permission Callbacks
+
+For fine-grained control, use the `can_use_tool` callback to programmatically approve or deny tool requests based on custom logic.
+
+### Basic Permission Callback
+
+```python
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    ToolPermissionContext
+)
+
+async def my_permission_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    # Allow read operations automatically
+    if tool_name in ["Read", "Glob", "Grep"]:
+        return PermissionResultAllow()
+    
+    # Deny dangerous operations
+    if tool_name == "Bash" and "rm -rf" in input_data.get("command", ""):
+        return PermissionResultDeny(
+            message="Dangerous command detected"
+        )
+    
+    # Allow by default
+    return PermissionResultAllow()
+
+options = ClaudeAgentOptions(
+    can_use_tool=my_permission_callback,
+    permission_mode="default"
+)
+
+async with ClaudeSDKClient(options=options) as client:
+    await client.query("List files in current directory")
+    async for msg in client.receive_response():
+        print(msg)
+```
+
+### Permission Callback with Input Modification
+
+You can modify tool inputs before execution:
+
+```python
+async def safe_path_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    if tool_name in ["Write", "Edit"]:
+        file_path = input_data.get("file_path", "")
+        
+        # Block system directories
+        if file_path.startswith("/etc/") or file_path.startswith("/usr/"):
+            return PermissionResultDeny(
+                message=f"Cannot write to system directory: {file_path}"
+            )
+        
+        # Redirect to safe directory
+        if not file_path.startswith("./safe_output/"):
+            modified_input = input_data.copy()
+            modified_input["file_path"] = f"./safe_output/{file_path.split('/')[-1]}"
+            return PermissionResultAllow(
+                updated_input=modified_input
+            )
+    
+    return PermissionResultAllow()
+
+options = ClaudeAgentOptions(
+    can_use_tool=safe_path_callback
+)
+```
+
+### Logging and Auditing
+
+Track tool usage for compliance and debugging:
+
+```python
+import json
+from datetime import datetime
+
+tool_audit_log = []
+
+async def audit_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    # Log all tool requests
+    audit_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "tool": tool_name,
+        "input": input_data,
+        "suggestions": context.suggestions
+    }
+    tool_audit_log.append(audit_entry)
+    
+    print(f"[AUDIT] Tool: {tool_name}")
+    print(f"[AUDIT] Input: {json.dumps(input_data, indent=2)}")
+    
+    # Apply permission logic
+    if tool_name == "Bash":
+        command = input_data.get("command", "")
+        dangerous_patterns = ["rm -rf", "sudo", "chmod 777", "dd if="]
+        
+        for pattern in dangerous_patterns:
+            if pattern in command:
+                print(f"[AUDIT] DENIED: Dangerous pattern '{pattern}'")
+                return PermissionResultDeny(
+                    message=f"Dangerous command pattern detected: {pattern}"
+                )
+    
+    print(f"[AUDIT] ALLOWED")
+    return PermissionResultAllow()
+
+options = ClaudeAgentOptions(
+    can_use_tool=audit_callback
+)
+```
+
+## Permission Context
+
+The `ToolPermissionContext` provides additional information:
+
+```python
+from claude_agent_sdk import ToolPermissionContext
+
+async def context_aware_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    # Access permission suggestions from CLI
+    if context.suggestions:
+        print(f"CLI suggestions: {context.suggestions}")
+    
+    # Future: abort signal support
+    # if context.signal and context.signal.aborted:
+    #     return PermissionResultDeny(message="Operation cancelled")
+    
+    return PermissionResultAllow()
+```
+
+## Permission Updates
+
+You can programmatically update permission settings:
+
+```python
+from claude_agent_sdk import (
+    PermissionUpdate,
+    PermissionRuleValue,
+    PermissionResultAllow
+)
+
+async def update_permissions_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    # Allow and update permissions for future use
+    if tool_name == "Read":
+        return PermissionResultAllow(
+            updated_permissions=[
+                PermissionUpdate(
+                    type="addRules",
+                    rules=[
+                        PermissionRuleValue(
+                            tool_name="Read",
+                            rule_content="*.py"  # Allow reading Python files
+                        )
+                    ],
+                    behavior="allow",
+                    destination="session"  # Apply to current session only
+                )
+            ]
+        )
+    
+    return PermissionResultAllow()
+```
+
+Permission update types:
+- `addRules` - Add new permission rules
+- `replaceRules` - Replace existing rules
+- `removeRules` - Remove specific rules
+- `setMode` - Change permission mode
+- `addDirectories` - Add trusted directories
+- `removeDirectories` - Remove trusted directories
+
+Permission destinations:
+- `session` - Apply to current session only
+- `userSettings` - Save to user settings
+- `projectSettings` - Save to project settings
+- `localSettings` - Save to local settings
+
+## Combining Modes and Callbacks
+
+You can use both permission modes and callbacks together:
+
+```python
+async def selective_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    # Add custom logic on top of permission mode
+    if tool_name == "WebFetch":
+        url = input_data.get("url", "")
+        # Block access to internal networks
+        if url.startswith("http://localhost") or url.startswith("http://127.0.0.1"):
+            return PermissionResultDeny(
+                message="Cannot fetch from localhost"
+            )
+    
+    return PermissionResultAllow()
+
+options = ClaudeAgentOptions(
+    permission_mode="acceptEdits",  # Auto-approve file edits
+    can_use_tool=selective_callback  # Additional custom validation
+)
+```
+
+## Interrupting Tool Execution
+
+You can interrupt tool execution from permission callbacks:
+
+```python
+async def interrupt_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    # Deny with interrupt flag to stop execution immediately
+    if tool_name == "Bash" and "critical" in input_data.get("command", ""):
+        return PermissionResultDeny(
+            message="Critical command blocked",
+            interrupt=True  # Stop the agent immediately
+        )
+    
+    return PermissionResultAllow()
+```
+
+## Complete Example
+
+Here's a complete example combining multiple permission strategies:
+
+```python
+import asyncio
+import json
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    ToolPermissionContext,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock
+)
+
+# Track tool usage
+tool_usage_log = []
+
+async def comprehensive_permission_callback(
+    tool_name: str,
+    input_data: dict,
+    context: ToolPermissionContext
+) -> PermissionResultAllow | PermissionResultDeny:
+    # Log the request
+    tool_usage_log.append({
+        "tool": tool_name,
+        "input": input_data,
+        "suggestions": context.suggestions
+    })
+    
+    print(f"\n🔧 Tool Permission Request: {tool_name}")
+    print(f"   Input: {json.dumps(input_data, indent=2)}")
+    
+    # Always allow read operations
+    if tool_name in ["Read", "Glob", "Grep"]:
+        print(f"   ✅ Auto-allowing {tool_name} (read-only)")
+        return PermissionResultAllow()
+    
+    # Validate write operations
+    if tool_name in ["Write", "Edit", "MultiEdit"]:
+        file_path = input_data.get("file_path", "")
+        
+        # Block system directories
+        if file_path.startswith("/etc/") or file_path.startswith("/usr/"):
+            print(f"   ❌ Denying write to system directory")
+            return PermissionResultDeny(
+                message=f"Cannot write to system directory: {file_path}"
+            )
+        
+        # Redirect unsafe paths
+        if not file_path.startswith("./"):
+            safe_path = f"./safe_output/{file_path.split('/')[-1]}"
+            print(f"   ⚠️  Redirecting to safe path: {safe_path}")
+            modified_input = input_data.copy()
+            modified_input["file_path"] = safe_path
+            return PermissionResultAllow(updated_input=modified_input)
+    
+    # Validate bash commands
+    if tool_name == "Bash":
+        command = input_data.get("command", "")
+        dangerous = ["rm -rf", "sudo", "chmod 777", "dd if=", "mkfs"]
+        
+        for pattern in dangerous:
+            if pattern in command:
+                print(f"   ❌ Denying dangerous command")
+                return PermissionResultDeny(
+                    message=f"Dangerous pattern detected: {pattern}",
+                    interrupt=True
+                )
+        
+        print(f"   ✅ Allowing bash command")
+        return PermissionResultAllow()
+    
+    # Default: allow
+    print(f"   ✅ Allowing {tool_name}")
+    return PermissionResultAllow()
+
+async def main():
+    options = ClaudeAgentOptions(
+        can_use_tool=comprehensive_permission_callback,
+        permission_mode="default",
+        cwd="."
+    )
+    
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query(
+            "Please list files in current directory and create a test.py file"
+        )
+        
+        async for message in client.receive_response():
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        print(f"\n💬 Claude: {block.text}")
+            elif isinstance(message, ResultMessage):
+                print(f"\n✅ Complete - Duration: {message.duration_ms}ms")
+    
+    # Print usage summary
+    print("\n" + "="*60)
+    print("Tool Usage Summary")
+    print("="*60)
+    for i, usage in enumerate(tool_usage_log, 1):
+        print(f"\n{i}. {usage['tool']}")
+        print(f"   Input: {json.dumps(usage['input'], indent=6)}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start with restrictive permissions">
+    Begin with `permission_mode="default"` and gradually relax permissions as you verify behavior. This prevents unexpected tool usage.
+  </Accordion>
+
+  <Accordion title="Use callbacks for complex logic">
+    Permission callbacks give you full programmatic control. Use them when permission modes alone aren't sufficient.
+  </Accordion>
+
+  <Accordion title="Validate all inputs">
+    Always validate tool inputs in permission callbacks, especially for commands like `Bash` that can execute arbitrary code.
+  </Accordion>
+
+  <Accordion title="Log permission decisions">
+    Maintain audit logs of permission decisions for compliance, debugging, and security analysis.
+  </Accordion>
+
+  <Accordion title="Use allowed_tools to restrict scope">
+    Always specify `allowed_tools` to limit which tools are available, even with permission callbacks.
+  </Accordion>
+
+  <Accordion title="Test permission logic thoroughly">
+    Test your permission callbacks with various inputs to ensure they behave as expected in all scenarios.
+  </Accordion>
+</AccordionGroup>
+
+## Related Resources
+
+- [Working with MCP Servers](/guides/mcp-servers)
+- [API Reference: ClaudeAgentOptions](/api/types/claude-agent-options)
+- [API Reference: PermissionResult](/api/types/claude-agent-options)

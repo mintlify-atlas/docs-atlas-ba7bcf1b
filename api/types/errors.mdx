@@ -1,0 +1,363 @@
+---
+title: "Error Types"
+description: "Exception types for error handling in Claude Agent SDK"
+---
+
+## Overview
+
+The Claude Agent SDK provides a hierarchy of exception types for handling different error conditions.
+
+```python
+from claude_agent_sdk import ClaudeSDKError, CLINotFoundError, ProcessError
+
+try:
+    result = await query("Hello Claude")
+except CLINotFoundError as e:
+    print(f"Claude Code CLI not found: {e}")
+except ProcessError as e:
+    print(f"CLI process failed: {e}")
+except ClaudeSDKError as e:
+    print(f"SDK error: {e}")
+```
+
+## Error Hierarchy
+
+```
+ClaudeSDKError (base)
+├── CLIConnectionError
+│   └── CLINotFoundError
+├── ProcessError
+├── CLIJSONDecodeError
+└── MessageParseError
+```
+
+## ClaudeSDKError
+
+Base exception for all Claude SDK errors.
+
+```python
+class ClaudeSDKError(Exception):
+    """Base exception for all Claude SDK errors."""
+```
+
+Catch this to handle any SDK-related error:
+
+```python
+try:
+    async for message in client:
+        process_message(message)
+except ClaudeSDKError as e:
+    print(f"SDK error occurred: {e}")
+```
+
+## CLIConnectionError
+
+Raised when unable to connect to Claude Code.
+
+```python
+class CLIConnectionError(ClaudeSDKError):
+    """Raised when unable to connect to Claude Code."""
+```
+
+This is a base class for connection-related errors. Usually you'll see its subclass `CLINotFoundError` instead.
+
+## CLINotFoundError
+
+Raised when Claude Code CLI is not found or not installed.
+
+```python
+class CLINotFoundError(CLIConnectionError):
+    def __init__(
+        self,
+        message: str = "Claude Code not found",
+        cli_path: str | None = None
+    )
+```
+
+<ParamField path="message" type="str" default="Claude Code not found">
+  Error message.
+</ParamField>
+
+<ParamField path="cli_path" type="str | None">
+  Path where the CLI was expected, if known.
+</ParamField>
+
+### Example
+
+```python
+from claude_agent_sdk import query, CLINotFoundError
+
+try:
+    result = await query("Hello")
+except CLINotFoundError as e:
+    print(f"Please install Claude Code CLI: {e}")
+    print("Visit https://docs.anthropic.com/en/docs/claude-code")
+```
+
+### Common Causes
+
+- Claude Code CLI not installed
+- CLI not in system PATH
+- Incorrect `cli_path` in `ClaudeAgentOptions`
+
+### Solutions
+
+1. Install Claude Code:
+   ```bash
+   brew install anthropics/claude/claude
+   ```
+
+2. Specify custom CLI path:
+   ```python
+   options = ClaudeAgentOptions(cli_path="/custom/path/to/claude")
+   ```
+
+## ProcessError
+
+Raised when the CLI process fails.
+
+```python
+class ProcessError(ClaudeSDKError):
+    def __init__(
+        self,
+        message: str,
+        exit_code: int | None = None,
+        stderr: str | None = None
+    )
+    
+    exit_code: int | None
+    stderr: str | None
+```
+
+<ParamField path="message" type="str" required>
+  Error message.
+</ParamField>
+
+<ParamField path="exit_code" type="int | None">
+  CLI process exit code.
+</ParamField>
+
+<ParamField path="stderr" type="str | None">
+  Standard error output from the CLI process.
+</ParamField>
+
+### Example
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ProcessError
+
+try:
+    client = ClaudeSDKClient()
+    async for message in client:
+        process_message(message)
+except ProcessError as e:
+    print(f"CLI process failed with exit code {e.exit_code}")
+    if e.stderr:
+        print(f"Error output: {e.stderr}")
+```
+
+### Common Causes
+
+- Invalid CLI arguments
+- Authentication failures
+- API key issues
+- Resource exhaustion
+- CLI crashes
+
+## CLIJSONDecodeError
+
+Raised when unable to decode JSON from CLI output.
+
+```python
+class CLIJSONDecodeError(ClaudeSDKError):
+    def __init__(self, line: str, original_error: Exception)
+    
+    line: str
+    original_error: Exception
+```
+
+<ParamField path="line" type="str" required>
+  The line that failed to parse (truncated to 100 chars in message).
+</ParamField>
+
+<ParamField path="original_error" type="Exception" required>
+  The underlying JSON decode exception.
+</ParamField>
+
+### Example
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, CLIJSONDecodeError
+
+try:
+    async for message in client:
+        process_message(message)
+except CLIJSONDecodeError as e:
+    print(f"Failed to parse CLI output: {e}")
+    print(f"Original error: {e.original_error}")
+    print(f"Problematic line: {e.line[:100]}...")
+```
+
+### Common Causes
+
+- CLI version mismatch
+- Corrupted output
+- CLI bug
+- Mixing stdout and stderr
+
+### Solutions
+
+1. Update Claude Code CLI to latest version
+2. Check for CLI warnings/errors
+3. Report issue if persistent
+
+## MessageParseError
+
+Raised when unable to parse a message from CLI output.
+
+```python
+class MessageParseError(ClaudeSDKError):
+    def __init__(
+        self,
+        message: str,
+        data: dict[str, Any] | None = None
+    )
+    
+    data: dict[str, Any] | None
+```
+
+<ParamField path="message" type="str" required>
+  Error message.
+</ParamField>
+
+<ParamField path="data" type="dict[str, Any] | None">
+  The message data that failed to parse.
+</ParamField>
+
+### Example
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, MessageParseError
+
+try:
+    async for message in client:
+        process_message(message)
+except MessageParseError as e:
+    print(f"Failed to parse message: {e}")
+    if e.data:
+        print(f"Message data: {e.data}")
+```
+
+### Common Causes
+
+- Unexpected message format
+- SDK version mismatch with CLI
+- Missing required fields
+- Type validation failures
+
+## Error Handling Best Practices
+
+### Specific Error Handling
+
+```python
+from claude_agent_sdk import (
+    query,
+    ClaudeSDKError,
+    CLINotFoundError,
+    ProcessError,
+    CLIJSONDecodeError,
+)
+
+try:
+    result = await query("Analyze this code")
+except CLINotFoundError:
+    print("Please install Claude Code CLI")
+except ProcessError as e:
+    if e.exit_code == 1:
+        print("Authentication failed - check API key")
+    else:
+        print(f"CLI process error: {e}")
+except CLIJSONDecodeError as e:
+    print(f"CLI output parsing failed: {e}")
+    # Report bug or check CLI version
+except ClaudeSDKError as e:
+    print(f"Unknown SDK error: {e}")
+```
+
+### Graceful Degradation
+
+```python
+from claude_agent_sdk import ClaudeSDKClient, ClaudeSDKError
+
+async def robust_query(prompt: str, max_retries: int = 3):
+    for attempt in range(max_retries):
+        try:
+            client = ClaudeSDKClient()
+            async for message in client:
+                if isinstance(message, ResultMessage):
+                    return message
+        except CLIJSONDecodeError:
+            # Transient parsing error, retry
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1)
+                continue
+            raise
+        except ProcessError as e:
+            if e.exit_code == 429:  # Rate limit
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+            raise
+        except ClaudeSDKError:
+            raise
+    
+    raise Exception("Max retries exceeded")
+```
+
+### Logging Errors
+
+```python
+import logging
+from claude_agent_sdk import ClaudeSDKError
+
+logger = logging.getLogger(__name__)
+
+try:
+    async for message in client:
+        process_message(message)
+except ClaudeSDKError as e:
+    logger.error(f"SDK error: {e}", exc_info=True)
+    # exc_info=True includes full stack trace
+```
+
+### Context Managers
+
+```python
+from contextlib import asynccontextmanager
+from claude_agent_sdk import ClaudeSDKClient, ClaudeSDKError
+
+@asynccontextmanager
+async def safe_client(**options):
+    client = None
+    try:
+        client = ClaudeSDKClient(ClaudeAgentOptions(**options))
+        yield client
+    except ClaudeSDKError as e:
+        print(f"Client error: {e}")
+        raise
+    finally:
+        if client:
+            await client.close()
+
+# Usage
+async with safe_client(model="claude-sonnet-4-20250514") as client:
+    await client.send_message("Hello")
+    async for message in client:
+        process_message(message)
+```
+
+## Related Documentation
+
+- [ClaudeSDKClient](/api/claude-sdk-client) - Main client class
+- [query()](/api/query) - One-shot query function
+- [ClaudeAgentOptions](/api/types/claude-agent-options) - Configuration options

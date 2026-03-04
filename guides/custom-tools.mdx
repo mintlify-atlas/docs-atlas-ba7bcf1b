@@ -1,0 +1,593 @@
+---
+title: 'Custom Tools'
+description: 'Create custom tools using the @tool decorator and SDK MCP servers'
+---
+
+## Overview
+
+The Claude Agent SDK allows you to create custom tools that run in-process within your Python application. These tools extend Claude's capabilities with your own functions and logic.
+
+<Info>
+  SDK MCP servers run **in-process** within your application, providing better performance than external MCP servers that require separate processes.
+</Info>
+
+## Benefits of SDK MCP Servers
+
+<CardGroup cols={2}>
+
+<Card title="Better Performance" icon="bolt">
+  No IPC overhead - tools run directly in your process
+</Card>
+
+<Card title="Simpler Deployment" icon="rocket">
+  Single process - no need to manage separate server processes
+</Card>
+
+<Card title="Easier Debugging" icon="bug">
+  Debug tools alongside your application code
+</Card>
+
+<Card title="State Access" icon="database">
+  Direct access to your application's variables and state
+</Card>
+
+</CardGroup>
+
+## Creating a Simple Tool
+
+Use the `@tool` decorator to define a custom tool:
+
+```python
+from claude_agent_sdk import tool
+from typing import Any
+
+@tool(
+    name="greet",
+    description="Greet a user by name",
+    input_schema={"name": str}
+)
+async def greet(args: dict[str, Any]) -> dict[str, Any]:
+    """Greet a user."""
+    return {
+        "content": [
+            {"type": "text", "text": f"Hello, {args['name']}!"}
+        ]
+    }
+```
+
+<Note>
+  Tool functions must be **async** (defined with `async def`) and return a dictionary with a `content` key containing the response.
+</Note>
+
+## Tool Structure
+
+Every tool needs three components:
+
+<Steps>
+
+<Step title="Name">
+  A unique identifier that Claude uses to reference the tool:
+  
+  ```python
+  @tool(
+      name="calculate_sum",  # Unique identifier
+      # ...
+  )
+  ```
+</Step>
+
+<Step title="Description">
+  Human-readable description that helps Claude understand when to use the tool:
+  
+  ```python
+  @tool(
+      name="calculate_sum",
+      description="Add two numbers together and return the sum",  # Clear description
+      # ...
+  )
+  ```
+</Step>
+
+<Step title="Input Schema">
+  Schema defining the tool's input parameters:
+  
+  ```python
+  @tool(
+      name="calculate_sum",
+      description="Add two numbers together and return the sum",
+      input_schema={"a": float, "b": float}  # Parameter types
+  )
+  ```
+</Step>
+
+</Steps>
+
+## Complete Calculator Example
+
+Here's a complete example from the SDK examples:
+
+```python
+import asyncio
+from typing import Any
+from claude_agent_sdk import (
+    tool,
+    create_sdk_mcp_server,
+    ClaudeSDKClient,
+    ClaudeAgentOptions
+)
+
+# Define calculator tools
+
+@tool("add", "Add two numbers", {"a": float, "b": float})
+async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    """Add two numbers together."""
+    result = args["a"] + args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} + {args['b']} = {result}"}]
+    }
+
+@tool("subtract", "Subtract one number from another", {"a": float, "b": float})
+async def subtract_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    """Subtract b from a."""
+    result = args["a"] - args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} - {args['b']} = {result}"}]
+    }
+
+@tool("multiply", "Multiply two numbers", {"a": float, "b": float})
+async def multiply_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    """Multiply two numbers."""
+    result = args["a"] * args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} × {args['b']} = {result}"}]
+    }
+
+@tool("divide", "Divide one number by another", {"a": float, "b": float})
+async def divide_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    """Divide a by b."""
+    if args["b"] == 0:
+        return {
+            "content": [
+                {"type": "text", "text": "Error: Division by zero is not allowed"}
+            ],
+            "is_error": True
+        }
+    
+    result = args["a"] / args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} ÷ {args['b']} = {result}"}]
+    }
+
+# Create the MCP server
+calculator = create_sdk_mcp_server(
+    name="calculator",
+    version="2.0.0",
+    tools=[add_numbers, subtract_numbers, multiply_numbers, divide_numbers]
+)
+
+# Configure Claude to use the calculator
+options = ClaudeAgentOptions(
+    mcp_servers={"calc": calculator},
+    allowed_tools=[
+        "mcp__calc__add",
+        "mcp__calc__subtract",
+        "mcp__calc__multiply",
+        "mcp__calc__divide"
+    ]
+)
+
+async def main():
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query("Calculate 15 + 27")
+        
+        async for message in client.receive_response():
+            print(message)
+
+asyncio.run(main())
+```
+
+## Error Handling
+
+Handle errors gracefully in your tools:
+
+<CodeGroup>
+
+```python Division by Zero
+@tool("divide", "Divide two numbers", {"a": float, "b": float})
+async def divide(args: dict[str, Any]) -> dict[str, Any]:
+    if args["b"] == 0:
+        return {
+            "content": [
+                {"type": "text", "text": "Error: Division by zero"}
+            ],
+            "is_error": True  # Mark as error
+        }
+    
+    result = args["a"] / args["b"]
+    return {
+        "content": [{"type": "text", "text": f"Result: {result}"}]
+    }
+```
+
+```python Validation
+@tool("sqrt", "Calculate square root", {"n": float})
+async def square_root(args: dict[str, Any]) -> dict[str, Any]:
+    n = args["n"]
+    
+    if n < 0:
+        return {
+            "content": [
+                {"type": "text", "text": f"Error: Cannot calculate square root of negative number {n}"}
+            ],
+            "is_error": True
+        }
+    
+    import math
+    result = math.sqrt(n)
+    return {"content": [{"type": "text", "text": f"√{n} = {result}"}]}
+```
+
+```python Try-Except
+@tool("process_data", "Process data", {"data": str})
+async def process_data(args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        # Process the data
+        result = complex_operation(args["data"])
+        return {
+            "content": [{"type": "text", "text": f"Processed: {result}"}]
+        }
+    except Exception as e:
+        return {
+            "content": [
+                {"type": "text", "text": f"Error processing data: {str(e)}"}
+            ],
+            "is_error": True
+        }
+```
+
+</CodeGroup>
+
+## Accessing Application State
+
+Tools can directly access your application's state:
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server
+from typing import Any
+
+# Application state
+class DataStore:
+    def __init__(self):
+        self.items = []
+        self.counter = 0
+
+store = DataStore()
+
+# Tools that access the store
+
+@tool("add_item", "Add item to store", {"item": str})
+async def add_item(args: dict[str, Any]) -> dict[str, Any]:
+    store.items.append(args["item"])
+    store.counter += 1
+    return {
+        "content": [
+            {"type": "text", "text": f"Added: {args['item']} (total: {store.counter})"}
+        ]
+    }
+
+@tool("list_items", "List all items in store", {})
+async def list_items(args: dict[str, Any]) -> dict[str, Any]:
+    if not store.items:
+        return {"content": [{"type": "text", "text": "Store is empty"}]}
+    
+    items_text = "\n".join(f"{i+1}. {item}" for i, item in enumerate(store.items))
+    return {
+        "content": [{"type": "text", "text": f"Items in store:\n{items_text}"}]
+    }
+
+@tool("clear_store", "Clear all items", {})
+async def clear_store(args: dict[str, Any]) -> dict[str, Any]:
+    count = len(store.items)
+    store.items.clear()
+    store.counter = 0
+    return {
+        "content": [{"type": "text", "text": f"Cleared {count} items"}]
+    }
+
+# Create server with all tools
+server = create_sdk_mcp_server(
+    name="datastore",
+    tools=[add_item, list_items, clear_store]
+)
+```
+
+## Advanced Input Schemas
+
+### Multiple Parameter Types
+
+```python
+@tool(
+    "format_message",
+    "Format a message with various options",
+    {
+        "text": str,
+        "uppercase": bool,
+        "repeat_count": int,
+        "prefix": str
+    }
+)
+async def format_message(args: dict[str, Any]) -> dict[str, Any]:
+    text = args["text"]
+    
+    if args.get("uppercase", False):
+        text = text.upper()
+    
+    repeat = args.get("repeat_count", 1)
+    prefix = args.get("prefix", "")
+    
+    result = "\n".join([f"{prefix}{text}" for _ in range(repeat)])
+    
+    return {"content": [{"type": "text", "text": result}]}
+```
+
+### JSON Schema
+
+For complex validation, use full JSON Schema:
+
+```python
+@tool(
+    "create_user",
+    "Create a new user",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "age": {"type": "integer", "minimum": 0, "maximum": 150},
+            "email": {"type": "string", "format": "email"}
+        },
+        "required": ["name", "email"]
+    }
+)
+async def create_user(args: dict[str, Any]) -> dict[str, Any]:
+    user = {
+        "name": args["name"],
+        "email": args["email"],
+        "age": args.get("age", 0)
+    }
+    
+    return {
+        "content": [
+            {"type": "text", "text": f"Created user: {user['name']} ({user['email']})"}
+        ]
+    }
+```
+
+## Tool Naming Convention
+
+When using MCP servers, tools are prefixed with the server name:
+
+```python
+# Create server named "calc"
+calculator = create_sdk_mcp_server(
+    name="calc",
+    tools=[add_numbers]
+)
+
+# Tool "add" becomes "mcp__calc__add" in allowed_tools
+options = ClaudeAgentOptions(
+    mcp_servers={"calc": calculator},
+    allowed_tools=["mcp__calc__add"]  # Format: mcp__{server}__{tool}
+)
+```
+
+<Warning>
+  Always use the `mcp__{server}__{tool}` format in `allowed_tools` when pre-approving MCP server tools.
+</Warning>
+
+## Using with query()
+
+Tools work with both `ClaudeSDKClient` and `query()`:
+
+```python
+import asyncio
+from claude_agent_sdk import query, ClaudeAgentOptions, tool, create_sdk_mcp_server
+from typing import Any
+
+@tool("hello", "Say hello", {"name": str})
+async def say_hello(args: dict[str, Any]) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": f"Hello, {args['name']}!"}]}
+
+server = create_sdk_mcp_server(name="greeter", tools=[say_hello])
+
+options = ClaudeAgentOptions(
+    mcp_servers={"greeter": server},
+    allowed_tools=["mcp__greeter__hello"]
+)
+
+async def main():
+    async for message in query(
+        prompt="Greet Alice using your tools",
+        options=options
+    ):
+        print(message)
+
+asyncio.run(main())
+```
+
+## Multiple MCP Servers
+
+You can register multiple MCP servers:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions
+
+# Create multiple servers
+calculator = create_sdk_mcp_server(name="calc", tools=[add, subtract])
+data_store = create_sdk_mcp_server(name="store", tools=[add_item, list_items])
+weather = create_sdk_mcp_server(name="weather", tools=[get_weather])
+
+# Register all servers
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "calc": calculator,
+        "store": data_store,
+        "weather": weather
+    },
+    allowed_tools=[
+        # Calculator tools
+        "mcp__calc__add",
+        "mcp__calc__subtract",
+        # Data store tools
+        "mcp__store__add_item",
+        "mcp__store__list_items",
+        # Weather tools
+        "mcp__weather__get_weather"
+    ]
+)
+```
+
+## Best Practices
+
+<AccordionGroup>
+
+<Accordion title="Clear Descriptions">
+  Write clear, specific descriptions that help Claude understand when to use each tool:
+  
+  ```python
+  # Good
+  description="Add two numbers together and return the sum"
+  
+  # Bad
+  description="Math operation"
+  ```
+</Accordion>
+
+<Accordion title="Validate Inputs">
+  Always validate inputs and handle edge cases:
+  
+  ```python
+  if args["value"] < 0:
+      return {"content": [...], "is_error": True}
+  ```
+</Accordion>
+
+<Accordion title="Return Meaningful Errors">
+  Provide helpful error messages that guide Claude:
+  
+  ```python
+  return {
+      "content": [{"type": "text", "text": "Error: File not found. Please check the path."}],
+      "is_error": True
+  }
+  ```
+</Accordion>
+
+<Accordion title="Use Async Functions">
+  Always define tools as async functions, even if they don't use await:
+  
+  ```python
+  async def my_tool(args):  # async def, not def
+      return {...}
+  ```
+</Accordion>
+
+<Accordion title="Pre-approve Safe Tools">
+  Add safe tools to `allowed_tools` to avoid permission prompts:
+  
+  ```python
+  allowed_tools=["mcp__calc__add", "mcp__calc__multiply"]
+  ```
+</Accordion>
+
+</AccordionGroup>
+
+## Complete Working Example
+
+Here's a complete, runnable example:
+
+```python
+#!/usr/bin/env python3
+import asyncio
+from typing import Any
+from claude_agent_sdk import (
+    tool,
+    create_sdk_mcp_server,
+    ClaudeSDKClient,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    TextBlock,
+    ToolUseBlock
+)
+
+# Define tools
+@tool("add", "Add two numbers", {"a": float, "b": float})
+async def add_numbers(args: dict[str, Any]) -> dict[str, Any]:
+    result = args["a"] + args["b"]
+    return {
+        "content": [{"type": "text", "text": f"{args['a']} + {args['b']} = {result}"}]
+    }
+
+@tool("sqrt", "Calculate square root", {"n": float})
+async def square_root(args: dict[str, Any]) -> dict[str, Any]:
+    n = args["n"]
+    if n < 0:
+        return {
+            "content": [{"type": "text", "text": f"Error: Cannot calculate √{n}"}],
+            "is_error": True
+        }
+    
+    import math
+    result = math.sqrt(n)
+    return {"content": [{"type": "text", "text": f"√{n} = {result}"}]}
+
+# Create server
+calculator = create_sdk_mcp_server(
+    name="calculator",
+    version="1.0.0",
+    tools=[add_numbers, square_root]
+)
+
+# Configure options
+options = ClaudeAgentOptions(
+    mcp_servers={"calc": calculator},
+    allowed_tools=["mcp__calc__add", "mcp__calc__sqrt"]
+)
+
+async def main():
+    async with ClaudeSDKClient(options=options) as client:
+        # Test the calculator
+        await client.query("Calculate the square root of 144, then add 5 to it")
+        
+        async for msg in client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+                    elif isinstance(block, ToolUseBlock):
+                        print(f"Using tool: {block.name}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Hooks" icon="webhook" href="/guides/hooks">
+  Implement hooks to control tool execution
+</Card>
+
+<Card title="Permissions" icon="shield" href="/guides/permissions">
+  Learn about tool permission management
+</Card>
+
+<Card title="MCP Servers" icon="server" href="/guides/mcp-servers">
+  Explore external MCP servers
+</Card>
+
+<Card title="Examples" icon="code" href="/examples/mcp-calculator">
+  See the full calculator example
+</Card>
+
+</CardGroup>

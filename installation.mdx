@@ -1,0 +1,72 @@
+---
+title: Installation
+description: Install the Claude Agent SDK for Python and get started in minutes
+---
+
+## Prerequisites
+
+Before installing the Claude Agent SDK, ensure you have:
+
+- **Python 3.10 or higher** - The SDK supports Python 3.10, 3.11, 3.12, and 3.13
+
+## Install via pip
+
+Install the Claude Agent SDK using pip:
+
+```bash
+pip install claude-agent-sdk
+```
+
+This command installs the SDK along with all required dependencies:
+
+- `anyio>=4.0.0` - For async runtime support
+- `mcp>=0.1.0` - For Model Context Protocol support
+- `typing_extensions>=4.0.0` - For Python 3.10 compatibility
+
+## Bundled CLI
+
+The Claude Code CLI is automatically bundled with the package - no separate installation required.
+
+<Note>
+The SDK uses the bundled CLI by default, so you can start building immediately without additional setup.
+</Note>
+
+### Using a custom CLI installation
+
+If you prefer to use a system-wide installation or a specific version of the CLI:
+
+<Steps>
+  <Step title="Install Claude Code separately">
+    ```bash
+    curl -fsSL https://claude.ai/install.sh | bash
+    ```
+  </Step>
+  
+  <Step title="Specify the custom path in your code">
+    ```python
+    from claude_agent_sdk import ClaudeAgentOptions
+
+    options = ClaudeAgentOptions(
+        cli_path="/path/to/claude"
+    )
+    ```
+  </Step>
+</Steps>
+
+## Verify installation
+
+Verify your installation by running a simple Python script:
+
+```python
+import claude_agent_sdk
+
+print(f"Claude Agent SDK version: {claude_agent_sdk.__version__}")
+```
+
+If the import succeeds, you're ready to start building with the Claude Agent SDK.
+
+## Next steps
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Get your first agent running in minutes
+</Card>

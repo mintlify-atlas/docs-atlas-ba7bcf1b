@@ -1,0 +1,262 @@
+---
+title: "Content Block Types"
+description: "Content block types for message content in Claude Agent SDK"
+---
+
+## Overview
+
+Content blocks represent different types of content within messages. They are used in both `UserMessage` and `AssistantMessage` content.
+
+```python
+ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
+```
+
+## TextBlock
+
+Represents plain text content.
+
+```python
+@dataclass
+class TextBlock:
+    text: str
+```
+
+<ParamField path="text" type="str" required>
+  The text content.
+</ParamField>
+
+### Example
+
+```python
+async for message in client:
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, TextBlock):
+                print(f"Claude says: {block.text}")
+```
+
+## ThinkingBlock
+
+Represents Claude's internal reasoning (extended thinking).
+
+```python
+@dataclass
+class ThinkingBlock:
+    thinking: str
+    signature: str
+```
+
+<ParamField path="thinking" type="str" required>
+  The thinking content showing Claude's reasoning process.
+</ParamField>
+
+<ParamField path="signature" type="str" required>
+  Cryptographic signature verifying the thinking content.
+</ParamField>
+
+### Example
+
+```python
+async for message in client:
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, ThinkingBlock):
+                print(f"Claude's reasoning: {block.thinking}")
+                print(f"Verified: {block.signature}")
+```
+
+<Info>
+  Thinking blocks are only present when extended thinking is enabled via the `thinking` option in `ClaudeAgentOptions`.
+</Info>
+
+## ToolUseBlock
+
+Represents Claude's intent to use a tool.
+
+```python
+@dataclass
+class ToolUseBlock:
+    id: str
+    name: str
+    input: dict[str, Any]
+```
+
+<ParamField path="id" type="str" required>
+  Unique identifier for this tool use (e.g., `"toolu_01ABC123"`).
+</ParamField>
+
+<ParamField path="name" type="str" required>
+  Name of the tool being invoked (e.g., `"Bash"`, `"Read"`, `"Write"`).
+</ParamField>
+
+<ParamField path="input" type="dict[str, Any]" required>
+  Tool input parameters as a dictionary.
+</ParamField>
+
+### Example
+
+```python
+async for message in client:
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, ToolUseBlock):
+                print(f"Tool: {block.name}")
+                print(f"ID: {block.id}")
+                print(f"Input: {block.input}")
+                
+                # Example tool use
+                if block.name == "Bash":
+                    print(f"Command: {block.input.get('command')}")
+                elif block.name == "Write":
+                    print(f"File: {block.input.get('filePath')}")
+```
+
+### Common Tool Input Schemas
+
+<Expandable title="Bash">
+  ```python
+  {
+      "command": str,
+      "description": str,  # Optional
+      "timeout": int,      # Optional, milliseconds
+      "workdir": str       # Optional
+  }
+  ```
+</Expandable>
+
+<Expandable title="Read">
+  ```python
+  {
+      "filePath": str,
+      "offset": int,       # Optional, line number
+      "limit": int         # Optional, number of lines
+  }
+  ```
+</Expandable>
+
+<Expandable title="Write">
+  ```python
+  {
+      "content": str,
+      "filePath": str
+  }
+  ```
+</Expandable>
+
+<Expandable title="Edit">
+  ```python
+  {
+      "filePath": str,
+      "oldString": str,
+      "newString": str,
+      "replaceAll": bool   # Optional
+  }
+  ```
+</Expandable>
+
+<Expandable title="Task">
+  ```python
+  {
+      "description": str,
+      "agentType": str     # Optional
+  }
+  ```
+</Expandable>
+
+## ToolResultBlock
+
+Represents the result of a tool execution.
+
+```python
+@dataclass
+class ToolResultBlock:
+    tool_use_id: str
+    content: str | list[dict[str, Any]] | None = None
+    is_error: bool | None = None
+```
+
+<ParamField path="tool_use_id" type="str" required>
+  ID of the tool use this result corresponds to (matches `ToolUseBlock.id`).
+</ParamField>
+
+<ParamField path="content" type="str | list[dict[str, Any]] | None">
+  Tool output content. Can be:
+  - A string for simple text output
+  - A list of content blocks for structured output
+  - `None` if the tool had no output
+</ParamField>
+
+<ParamField path="is_error" type="bool | None">
+  Whether the tool execution resulted in an error.
+</ParamField>
+
+### Example
+
+```python
+async for message in client:
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, ToolResultBlock):
+                print(f"Tool result for: {block.tool_use_id}")
+                if block.is_error:
+                    print(f"Error: {block.content}")
+                else:
+                    print(f"Output: {block.content}")
+```
+
+<Warning>
+  Tool result blocks are typically generated internally by the SDK and CLI. You usually don't need to create them manually unless implementing custom tool execution.
+</Warning>
+
+## Pattern Matching Example
+
+Python 3.10+ pattern matching makes it easy to handle different content block types:
+
+```python
+async for message in client:
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            match block:
+                case TextBlock(text=text):
+                    print(f"Text: {text}")
+                
+                case ThinkingBlock(thinking=thinking):
+                    print(f"Thinking: {thinking}")
+                
+                case ToolUseBlock(id=tool_id, name=name, input=input):
+                    print(f"Tool {name} ({tool_id}): {input}")
+                
+                case ToolResultBlock(tool_use_id=tool_id, content=content, is_error=is_error):
+                    status = "error" if is_error else "success"
+                    print(f"Result for {tool_id} ({status}): {content}")
+```
+
+## Type Guards
+
+For older Python versions or more explicit type checking:
+
+```python
+from claude_agent_sdk.types import (
+    TextBlock,
+    ThinkingBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+)
+
+async for message in client:
+    if isinstance(message, AssistantMessage):
+        for block in message.content:
+            if isinstance(block, TextBlock):
+                print(f"Text: {block.text}")
+            elif isinstance(block, ThinkingBlock):
+                print(f"Thinking: {block.thinking}")
+            elif isinstance(block, ToolUseBlock):
+                print(f"Tool: {block.name}")
+            elif isinstance(block, ToolResultBlock):
+                print(f"Result: {block.content}")
+```
+
+## Related Types
+
+- [Message Types](/api/types/messages) - Message containers that hold content blocks
+- [ClaudeAgentOptions](/api/types/claude-agent-options) - Configuration including tool and thinking settings

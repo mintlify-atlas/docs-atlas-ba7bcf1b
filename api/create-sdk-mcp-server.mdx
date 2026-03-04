@@ -1,0 +1,219 @@
+---
+title: "create_sdk_mcp_server()"
+description: "Create an in-process MCP server that runs within your Python application"
+---
+
+## Overview
+
+Creates an in-process MCP server that runs directly in your application's process. Unlike external MCP servers that run as separate processes, SDK MCP servers provide better performance, simpler deployment, and easier debugging.
+
+## Signature
+
+```python
+def create_sdk_mcp_server(
+    name: str,
+    version: str = "1.0.0",
+    tools: list[SdkMcpTool[Any]] | None = None
+) -> McpSdkServerConfig
+```
+
+## Parameters
+
+<ParamField path="name" type="str" required>
+  Unique identifier for the server. This name is used to reference the server in the `mcp_servers` configuration.
+</ParamField>
+
+<ParamField path="version" type="str" default="1.0.0">
+  Server version string. This is for informational purposes and doesn't affect functionality.
+</ParamField>
+
+<ParamField path="tools" type="list[SdkMcpTool[Any]] | None" default="None">
+  List of `SdkMcpTool` instances created with the `@tool` decorator. These are the functions that Claude can call through this server. If None or empty, the server will have no tools.
+</ParamField>
+
+## Returns
+
+`McpSdkServerConfig` - A configuration object that can be passed to `ClaudeAgentOptions.mcp_servers`. This config contains the server instance and metadata needed for the SDK to route tool calls.
+
+## Benefits of SDK MCP Servers
+
+<CardGroup cols={2}>
+  <Card title="Better Performance" icon="gauge-high">
+    No IPC overhead - tools run directly in your process
+  </Card>
+  <Card title="Simpler Deployment" icon="rocket">
+    Single process deployment with no external dependencies
+  </Card>
+  <Card title="Easier Debugging" icon="bug">
+    Debug tools in the same process as your application
+  </Card>
+  <Card title="Direct State Access" icon="database">
+    Tools have direct access to your application's variables and state
+  </Card>
+</CardGroup>
+
+## Examples
+
+### Simple Calculator Server
+
+Basic server with multiple arithmetic tools:
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server, query, ClaudeAgentOptions
+
+@tool("add", "Add numbers", {"a": float, "b": float})
+async def add(args):
+    return {
+        "content": [
+            {"type": "text", "text": f"Sum: {args['a'] + args['b']}"}
+        ]
+    }
+
+@tool("multiply", "Multiply numbers", {"a": float, "b": float})
+async def multiply(args):
+    return {
+        "content": [
+            {"type": "text", "text": f"Product: {args['a'] * args['b']}"}
+        ]
+    }
+
+# Create the server
+calculator = create_sdk_mcp_server(
+    name="calculator",
+    version="2.0.0",
+    tools=[add, multiply]
+)
+
+# Use with Claude
+options = ClaudeAgentOptions(
+    mcp_servers={"calc": calculator},
+    allowed_tools=["add", "multiply"]
+)
+
+result = await query("What is 15 plus 27?", options=options)
+```
+
+### Server with Application State Access
+
+Server tools that access and modify application state:
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server
+
+class DataStore:
+    def __init__(self):
+        self.items = []
+
+# Create application state
+store = DataStore()
+
+@tool("add_item", "Add item to store", {"item": str})
+async def add_item(args):
+    store.items.append(args["item"])
+    return {
+        "content": [
+            {"type": "text", "text": f"Added: {args['item']}"}
+        ]
+    }
+
+@tool("list_items", "List all items in store", {})
+async def list_items(args):
+    if not store.items:
+        return {
+            "content": [
+                {"type": "text", "text": "Store is empty"}
+            ]
+        }
+    items_text = "\n".join(f"- {item}" for item in store.items)
+    return {
+        "content": [
+            {"type": "text", "text": f"Items:\n{items_text}"}
+        ]
+    }
+
+# Create server with state access
+server = create_sdk_mcp_server(
+    name="store",
+    version="1.0.0",
+    tools=[add_item, list_items]
+)
+```
+
+### Multiple Servers
+
+Using multiple SDK MCP servers in one application:
+
+```python
+from claude_agent_sdk import tool, create_sdk_mcp_server, query, ClaudeAgentOptions
+
+# Math tools
+@tool("sqrt", "Calculate square root", {"n": float})
+async def sqrt_tool(args):
+    import math
+    result = math.sqrt(args["n"])
+    return {"content": [{"type": "text", "text": f"√{args['n']} = {result}"}]}
+
+math_server = create_sdk_mcp_server(
+    name="math",
+    tools=[sqrt_tool]
+)
+
+# String tools
+@tool("uppercase", "Convert text to uppercase", {"text": str})
+async def uppercase_tool(args):
+    return {"content": [{"type": "text", "text": args["text"].upper()}]}
+
+string_server = create_sdk_mcp_server(
+    name="strings",
+    tools=[uppercase_tool]
+)
+
+# Use both servers
+options = ClaudeAgentOptions(
+    mcp_servers={
+        "math": math_server,
+        "strings": string_server
+    },
+    allowed_tools=["sqrt", "uppercase"]
+)
+
+result = await query("Convert 'hello' to uppercase and find the square root of 16", options=options)
+```
+
+## Usage with query()
+
+SDK MCP servers are configured through `ClaudeAgentOptions`:
+
+```python
+from claude_agent_sdk import query, ClaudeAgentOptions
+
+result = await query(
+    prompt="Your prompt here",
+    options=ClaudeAgentOptions(
+        mcp_servers={
+            "server_key": your_server_config
+        },
+        allowed_tools=["tool1", "tool2"]
+    )
+)
+```
+
+## Notes
+
+<Note>
+  **Server Lifecycle**: The server lifecycle is managed automatically by the SDK. You don't need to start or stop servers manually.
+</Note>
+
+<Note>
+  **Tool Access**: Tools defined in SDK MCP servers have direct access to your application's variables, functions, and state. This enables powerful integrations but requires careful consideration of scope and side effects.
+</Note>
+
+<Note>
+  **Performance**: SDK MCP servers run in-process, eliminating the overhead of subprocess creation and inter-process communication found in external MCP servers.
+</Note>
+
+## See Also
+
+- [@tool](/api/tool) - Decorator for creating tool functions
+- [ClaudeAgentOptions](/api/types/claude-agent-options) - Configuration for using servers with query()
+- [query()](/api/query) - One-shot query function

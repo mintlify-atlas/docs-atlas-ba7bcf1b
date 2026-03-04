@@ -1,0 +1,537 @@
+---
+title: 'Working with Agents'
+description: 'Create and use programmatic subagents with custom behaviors, tools, and models'
+---
+
+The Claude Agent SDK supports **programmatic subagents** - specialized agents with custom prompts, tools, and models that can be invoked by Claude to handle specific tasks.
+
+## What are Subagents?
+
+Subagents are task-focused agents that Claude can delegate work to. Each subagent has:
+- A specific **description** that tells Claude when to use it
+- A custom **prompt** that defines its behavior
+- Restricted **tools** for focused functionality
+- Optional **model** selection (sonnet, opus, haiku)
+
+Subagents run as separate agent sessions and report progress through hook events.
+
+## Creating Custom Agents
+
+Define agents using the `AgentDefinition` class:
+
+```python
+from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions
+
+# Define a code reviewer agent
+code_reviewer = AgentDefinition(
+    description="Reviews code for best practices and potential issues",
+    prompt="You are a code reviewer. Analyze code for bugs, performance issues, "
+           "security vulnerabilities, and adherence to best practices. "
+           "Provide constructive feedback.",
+    tools=["Read", "Grep"],
+    model="sonnet"
+)
+
+# Configure options with the agent
+options = ClaudeAgentOptions(
+    agents={
+        "code-reviewer": code_reviewer
+    }
+)
+```
+
+### Agent Definition Fields
+
+```python
+from claude_agent_sdk import AgentDefinition
+
+agent = AgentDefinition(
+    description="Brief description of what this agent does",
+    prompt="Detailed instructions for the agent's behavior",
+    tools=["Tool1", "Tool2"],  # Optional: restrict tools
+    model="sonnet"             # Optional: sonnet, opus, haiku, inherit
+)
+```
+
+<ParamField path="description" type="str" required>
+  Brief description that helps Claude understand when to use this agent
+</ParamField>
+
+<ParamField path="prompt" type="str" required>
+  System prompt that defines the agent's behavior and expertise
+</ParamField>
+
+<ParamField path="tools" type="list[str]" default="None">
+  List of allowed tools. If None, the agent inherits tools from the parent
+</ParamField>
+
+<ParamField path="model" type="str" default="None">
+  Model to use: `"sonnet"`, `"opus"`, `"haiku"`, or `"inherit"`. If None, uses default
+</ParamField>
+
+## Using Agents in Conversations
+
+Claude automatically invokes agents based on task descriptions:
+
+```python
+import anyio
+from claude_agent_sdk import (
+    AgentDefinition,
+    ClaudeAgentOptions,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+    query
+)
+
+async def main():
+    # Define specialized agents
+    options = ClaudeAgentOptions(
+        agents={
+            "code-reviewer": AgentDefinition(
+                description="Reviews code for best practices and issues",
+                prompt="You are a code reviewer. Analyze code quality, "
+                       "performance, and security.",
+                tools=["Read", "Grep"],
+                model="sonnet"
+            ),
+            "doc-writer": AgentDefinition(
+                description="Writes comprehensive documentation",
+                prompt="You are a technical writer. Create clear, "
+                       "comprehensive documentation with examples.",
+                tools=["Read", "Write", "Edit"],
+                model="sonnet"
+            )
+        }
+    )
+    
+    # Claude will automatically use the appropriate agent
+    async for message in query(
+        prompt="Use the code-reviewer agent to review src/types.py",
+        options=options
+    ):
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    print(f"Claude: {block.text}")
+        elif isinstance(message, ResultMessage):
+            if message.total_cost_usd:
+                print(f"Cost: ${message.total_cost_usd:.4f}")
+
+anyio.run(main)
+```
+
+## Agent Examples
+
+### Code Reviewer Agent
+
+```python
+from claude_agent_sdk import AgentDefinition
+
+code_reviewer = AgentDefinition(
+    description="Reviews code for best practices and potential issues",
+    prompt="You are an expert code reviewer. Analyze code for:\n"
+           "- Bugs and logic errors\n"
+           "- Performance issues\n"
+           "- Security vulnerabilities\n"
+           "- Code style and best practices\n"
+           "Provide constructive, actionable feedback.",
+    tools=["Read", "Grep", "Glob"],
+    model="sonnet"
+)
+```
+
+### Documentation Writer Agent
+
+```python
+from claude_agent_sdk import AgentDefinition
+
+doc_writer = AgentDefinition(
+    description="Writes comprehensive technical documentation",
+    prompt="You are a technical documentation expert. Write clear, "
+           "comprehensive documentation that:\n"
+           "- Explains concepts clearly\n"
+           "- Includes practical examples\n"
+           "- Covers edge cases\n"
+           "- Uses proper formatting\n"
+           "Focus on clarity and completeness.",
+    tools=["Read", "Write", "Edit"],
+    model="sonnet"
+)
+```
+
+### Test Generator Agent
+
+```python
+from claude_agent_sdk import AgentDefinition
+
+test_generator = AgentDefinition(
+    description="Creates comprehensive test suites",
+    prompt="You are a testing expert. Create thorough test suites that:\n"
+           "- Cover normal and edge cases\n"
+           "- Test error handling\n"
+           "- Include clear assertions\n"
+           "- Follow testing best practices\n"
+           "Write tests that are maintainable and comprehensive.",
+    tools=["Read", "Write", "Bash"],
+    model="sonnet"
+)
+```
+
+### Data Analyzer Agent
+
+```python
+from claude_agent_sdk import AgentDefinition
+
+data_analyzer = AgentDefinition(
+    description="Analyzes data files and generates insights",
+    prompt="You are a data analyst. Analyze data to:\n"
+           "- Identify patterns and trends\n"
+           "- Calculate relevant statistics\n"
+           "- Generate visualizations\n"
+           "- Provide actionable insights\n"
+           "Present findings clearly with supporting evidence.",
+    tools=["Read", "Bash", "Write"],
+    model="sonnet"
+)
+```
+
+## Multiple Agents Working Together
+
+```python
+import anyio
+from claude_agent_sdk import (
+    AgentDefinition,
+    ClaudeAgentOptions,
+    query
+)
+
+async def main():
+    options = ClaudeAgentOptions(
+        agents={
+            "analyzer": AgentDefinition(
+                description="Analyzes code structure and patterns",
+                prompt="You are a code analyzer. Examine code structure, "
+                       "patterns, and architecture.",
+                tools=["Read", "Grep", "Glob"]
+            ),
+            "refactorer": AgentDefinition(
+                description="Refactors code for better quality",
+                prompt="You are a refactoring expert. Improve code quality "
+                       "while maintaining functionality.",
+                tools=["Read", "Write", "Edit"]
+            ),
+            "tester": AgentDefinition(
+                description="Creates and runs tests",
+                prompt="You are a testing expert. Write comprehensive tests "
+                       "and ensure code quality.",
+                tools=["Read", "Write", "Bash"]
+            )
+        },
+        setting_sources=["user", "project"]
+    )
+    
+    # Claude orchestrates multiple agents
+    async for message in query(
+        prompt="Use the analyzer to examine src/client.py, then have the "
+               "refactorer improve it, and finally have the tester add tests.",
+        options=options
+    ):
+        print(message)
+
+anyio.run(main)
+```
+
+## Agent Model Selection
+
+Choose the appropriate model for each agent:
+
+```python
+from claude_agent_sdk import AgentDefinition
+
+# Fast agent for simple tasks
+quick_agent = AgentDefinition(
+    description="Handles simple, quick tasks",
+    prompt="You handle quick tasks efficiently.",
+    model="haiku"  # Fast and cost-effective
+)
+
+# Balanced agent for general work
+general_agent = AgentDefinition(
+    description="Handles general tasks",
+    prompt="You handle a variety of tasks with good quality.",
+    model="sonnet"  # Balanced performance
+)
+
+# Powerful agent for complex tasks
+complex_agent = AgentDefinition(
+    description="Handles complex, challenging tasks",
+    prompt="You handle complex tasks requiring deep analysis.",
+    model="opus"  # Maximum capability
+)
+
+# Inherit model from parent
+inheriting_agent = AgentDefinition(
+    description="Uses same model as parent",
+    prompt="You inherit configuration from the parent agent.",
+    model="inherit"  # Use parent's model
+)
+```
+
+## Agent Tool Restrictions
+
+Limit agents to specific tools for focused functionality:
+
+```python
+from claude_agent_sdk import AgentDefinition
+
+# Read-only agent
+reader_agent = AgentDefinition(
+    description="Reads and analyzes files",
+    prompt="You analyze files without making changes.",
+    tools=["Read", "Grep", "Glob"]  # No write access
+)
+
+# Write-focused agent
+writer_agent = AgentDefinition(
+    description="Creates and modifies files",
+    prompt="You create and edit files.",
+    tools=["Read", "Write", "Edit", "MultiEdit"]
+)
+
+# Command execution agent
+command_agent = AgentDefinition(
+    description="Runs system commands",
+    prompt="You execute system commands safely.",
+    tools=["Bash", "Read"]  # Limited to bash and reading
+)
+
+# Unrestricted agent
+full_agent = AgentDefinition(
+    description="Handles any task",
+    prompt="You have full access to all tools.",
+    tools=None  # Inherits all available tools
+)
+```
+
+## Monitoring Agent Activity
+
+Use hooks to monitor when agents start and stop:
+
+```python
+import asyncio
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    AgentDefinition,
+    HookMatcher,
+    HookInput,
+    HookContext,
+    HookJSONOutput
+)
+
+async def agent_start_hook(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    agent_id = input_data.get("agent_id")
+    agent_type = input_data.get("agent_type")
+    print(f"🚀 Agent started: {agent_type} (ID: {agent_id})")
+    return {}
+
+async def agent_stop_hook(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    agent_id = input_data.get("agent_id")
+    agent_type = input_data.get("agent_type")
+    print(f"✅ Agent finished: {agent_type} (ID: {agent_id})")
+    return {}
+
+async def main():
+    options = ClaudeAgentOptions(
+        agents={
+            "analyzer": AgentDefinition(
+                description="Analyzes code",
+                prompt="Analyze code structure and quality.",
+                tools=["Read", "Grep"]
+            )
+        },
+        hooks={
+            "SubagentStart": [HookMatcher(matcher=None, hooks=[agent_start_hook])],
+            "SubagentStop": [HookMatcher(matcher=None, hooks=[agent_stop_hook])]
+        }
+    )
+    
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query("Use the analyzer agent to examine src/types.py")
+        async for msg in client.receive_response():
+            pass
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Agent Setting Sources
+
+Control which configuration sources agents use:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, AgentDefinition
+
+# Load user and project settings only
+options = ClaudeAgentOptions(
+    agents={
+        "reviewer": AgentDefinition(
+            description="Code reviewer",
+            prompt="Review code for quality.",
+            tools=["Read"]
+        )
+    },
+    setting_sources=["user", "project"]  # Skip local settings
+)
+
+# Completely isolated agents
+options = ClaudeAgentOptions(
+    agents={"isolated": agent_def},
+    setting_sources=[]  # No external settings
+)
+```
+
+## Complete Agent Workflow Example
+
+```python
+import asyncio
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    AgentDefinition,
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+    HookMatcher,
+    HookInput,
+    HookContext,
+    HookJSONOutput
+)
+
+# Track agent execution
+agent_stack = []
+
+async def track_agent_start(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    agent_type = input_data.get("agent_type", "unknown")
+    agent_stack.append(agent_type)
+    indent = "  " * (len(agent_stack) - 1)
+    print(f"{indent}▶ Starting agent: {agent_type}")
+    return {}
+
+async def track_agent_stop(
+    input_data: HookInput,
+    tool_use_id: str | None,
+    context: HookContext
+) -> HookJSONOutput:
+    agent_type = input_data.get("agent_type", "unknown")
+    indent = "  " * (len(agent_stack) - 1)
+    print(f"{indent}✓ Finished agent: {agent_type}")
+    if agent_stack and agent_stack[-1] == agent_type:
+        agent_stack.pop()
+    return {}
+
+async def main():
+    # Define specialized agents
+    options = ClaudeAgentOptions(
+        agents={
+            "analyzer": AgentDefinition(
+                description="Analyzes code structure and quality",
+                prompt="You are a code analyzer. Examine structure, patterns, "
+                       "and quality issues. Provide detailed analysis.",
+                tools=["Read", "Grep", "Glob"],
+                model="sonnet"
+            ),
+            "refactorer": AgentDefinition(
+                description="Refactors code for improved quality",
+                prompt="You are a refactoring expert. Improve code quality "
+                       "while maintaining functionality and adding comments.",
+                tools=["Read", "Edit", "MultiEdit"],
+                model="sonnet"
+            ),
+            "doc-writer": AgentDefinition(
+                description="Writes comprehensive documentation",
+                prompt="You are a technical writer. Create clear documentation "
+                       "with examples and explanations.",
+                tools=["Read", "Write"],
+                model="sonnet"
+            )
+        },
+        hooks={
+            "SubagentStart": [HookMatcher(matcher=None, hooks=[track_agent_start])],
+            "SubagentStop": [HookMatcher(matcher=None, hooks=[track_agent_stop])]
+        },
+        cwd="/path/to/project"
+    )
+    
+    print("=== Multi-Agent Code Improvement Workflow ===")
+    print()
+    
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query(
+            "Please improve the code in src/client.py by:\n"
+            "1. Using the analyzer agent to examine the code\n"
+            "2. Using the refactorer agent to improve the code\n"
+            "3. Using the doc-writer agent to document the changes"
+        )
+        
+        async for message in client.receive_response():
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        print(f"\nClaude: {block.text}")
+            elif isinstance(message, ResultMessage):
+                print(f"\n✅ Workflow complete")
+                print(f"Duration: {message.duration_ms}ms")
+                if message.total_cost_usd:
+                    print(f"Cost: ${message.total_cost_usd:.4f}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Write focused agent descriptions">
+    Agent descriptions should clearly indicate when to use each agent. Be specific about their capabilities and purpose.
+  </Accordion>
+
+  <Accordion title="Provide detailed prompts">
+    Agent prompts define behavior. Include guidelines, constraints, and examples to ensure consistent results.
+  </Accordion>
+
+  <Accordion title="Restrict tools appropriately">
+    Limit agents to only the tools they need. This improves security and helps Claude choose the right agent.
+  </Accordion>
+
+  <Accordion title="Choose models based on task complexity">
+    Use `haiku` for simple tasks, `sonnet` for general work, and `opus` for complex analysis. This optimizes cost and performance.
+  </Accordion>
+
+  <Accordion title="Monitor agent execution">
+    Use SubagentStart and SubagentStop hooks to track agent activity, especially in complex multi-agent workflows.
+  </Accordion>
+
+  <Accordion title="Test agents independently">
+    Test each agent separately before combining them in workflows to ensure they behave as expected.
+  </Accordion>
+</AccordionGroup>
+
+## Related Resources
+
+- [Session Management](/guides/sessions)
+- [Working with Hooks](/guides/hooks)
+- [API Reference: AgentDefinition](/api/types/claude-agent-options)
